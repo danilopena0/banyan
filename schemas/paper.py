@@ -2,17 +2,6 @@
 from pydantic import BaseModel, Field
 
 
-class ArxivPaper(BaseModel):
-    """Raw paper data fetched from arXiv."""
-    id: str
-    title: str
-    authors: list[str]
-    abstract: str
-    url: str
-    published: str
-    categories: list[str]
-
-
 class PaperSummary(BaseModel):
     """LLM-structured summary of an arXiv paper."""
     title: str
@@ -21,7 +10,13 @@ class PaperSummary(BaseModel):
         description="2-3 sentence summary understandable by non-experts"
     )
     methods: str = Field(
-        description="The core methods, architectures, or techniques used (e.g. 'fine-tunes LLaMA-3 with DPO on a synthetic preference dataset')"
+        description=(
+            "The core methods, architectures, or techniques used. Include conceptual and mathematical detail where relevant — "
+            "e.g. loss functions, objective formulations, architectural choices, training procedures, or key algorithmic steps. "
+            "Example: 'Fine-tunes LLaMA-3 using DPO (Direct Preference Optimization), which optimizes a Bradley-Terry preference "
+            "model directly without a separate reward model. The training objective is: L = -E[log σ(β log π_θ(y_w|x)/π_ref(y_w|x) "
+            "- β log π_θ(y_l|x)/π_ref(y_l|x))]'"
+        )
     )
     significance: str = Field(
         description="Why this paper matters to the AI/ML field"

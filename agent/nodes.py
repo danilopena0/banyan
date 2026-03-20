@@ -12,9 +12,9 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-from tavily import TavilyClient
 
 from agent.state import ResearchState
+from agent.tavily import tavily_search
 from agent.prompts import (
     RESEARCH_SYSTEM_PROMPT,
     SYNTHESIS_SYSTEM_PROMPT,
@@ -26,6 +26,29 @@ from rag.retriever import retrieve_relevant_context
 from schemas.briefing import DailyBriefing
 
 logger = logging.getLogger(__name__)
+
+# --- Module-level configuration constants ---
+_PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+_FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "microsoft/Phi-3.5-mini-instruct")
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
+
+# LLM generation settings
+_MAX_NEW_TOKENS = 2048
+_TEMPERATURE = 0.1
+
+# Enrichment limits
+_ENRICH_MAX_PAPERS = 20
+_ENRICH_TAVILY_RESULTS_PER_PAPER = 3
+_ENRICH_NEWS_RESULTS = 4
+_ENRICH_CONCEPT_RESULTS = 3
+_ENRICH_SNIPPET_CHARS = 200
+
+# RAG retrieval
+_RAG_K = 20
+
+# Synthesis token budgets (character limits before sending to LLM)
+_SYNTHESIS_CONTEXT_CHARS = 7000
+_SYNTHESIS_WEB_NEWS_CHARS = 1000
 
 
 def _build_llm(model_id: str, fallback_model_id: str = None):
@@ -44,8 +67,8 @@ def _build_llm(model_id: str, fallback_model_id: str = None):
             repo_id=model_id,
             huggingfacehub_api_token=token,
             task="text-generation",
-            max_new_tokens=2048,
-            temperature=0.1,
+            max_new_tokens=_MAX_NEW_TOKENS,
+            temperature=_TEMPERATURE,
             do_sample=True,
         )
         return ChatHuggingFace(llm=endpoint)
@@ -59,30 +82,13 @@ def _build_llm(model_id: str, fallback_model_id: str = None):
                 repo_id=fallback_model_id,
                 huggingfacehub_api_token=token,
                 task="text-generation",
-                max_new_tokens=2048,
-                temperature=0.1,
+                max_new_tokens=_MAX_NEW_TOKENS,
+                temperature=_TEMPERATURE,
                 do_sample=True,
             )
             return ChatHuggingFace(llm=endpoint)
         raise
 
-
-def _tavily_search(query: str, max_results: int = 5) -> dict:
-    """Run a single Tavily search. Returns raw response or empty dict on failure."""
-    api_key = os.getenv("TAVILY_API_KEY")
-    if not api_key:
-        return {}
-    try:
-        client = TavilyClient(api_key=api_key)
-        return client.search(
-            query=query,
-            search_depth="basic",
-            max_results=max_results,
-            include_answer=False,
-        )
-    except Exception as e:
-        logger.warning(f"Tavily search failed for '{query}': {e}")
-        return {}
 
 
 def fetch_ai_news_node(state: ResearchState) -> dict:
@@ -104,11 +110,11 @@ def fetch_ai_news_node(state: ResearchState) -> dict:
 
     news_items = []
     for query in queries:
-        response = _tavily_search(query, max_results=4)
+        response = tavily_search(query, max_results=_ENRICH_NEWS_RESULTS)
         for r in response.get("results", []):
             title = r.get("title", "")
             url = r.get("url", "")
-            snippet = r.get("content", "")[:200]
+            snippet = r.get("content", "")[:_ENRICH_SNIPPET_CHARS]
             if title:
                 news_items.append(f"[{title}]({url}): {snippet}")
 
@@ -129,13 +135,13 @@ def enrich_papers_node(state: ResearchState) -> dict:
         return {"raw_papers": state.raw_papers}
 
     enriched = []
-    for paper in state.raw_papers[:20]:  # cap at 20 to stay within rate limits
+    for paper in state.raw_papers[:_ENRICH_MAX_PAPERS]:
         title = paper.get("title", "")
         if not title:
             enriched.append(paper)
             continue
 
-        response = _tavily_search(f'"{title}" research paper', max_results=3)
+        response = tavily_search(f'"{title}" research paper', max_results=_ENRICH_TAVILY_RESULTS_PER_PAPER)
         results = response.get("results", [])
         snippets = [r.get("content", "")[:150] for r in results if r.get("content")]
 
@@ -146,7 +152,7 @@ def enrich_papers_node(state: ResearchState) -> dict:
         })
 
     # Preserve any papers beyond the cap without enrichment
-    for paper in state.raw_papers[20:]:
+    for paper in state.raw_papers[_ENRICH_MAX_PAPERS:]:
         enriched.append({**paper, "web_mentions": 0, "web_context": ""})
 
     discussed = sum(1 for p in enriched if p.get("web_mentions", 0) > 0)
@@ -164,9 +170,9 @@ def enrich_concept_node(state: ResearchState) -> dict:
         return {}
 
     concept_name = state.briefing.concept_of_the_day.name
-    response = _tavily_search(
+    response = tavily_search(
         f"{concept_name} explained machine learning beginner guide",
-        max_results=3,
+        max_results=_ENRICH_CONCEPT_RESULTS,
     )
 
     results = response.get("results", [])
@@ -198,11 +204,8 @@ def research_agent_node(state: ResearchState) -> dict:
     which tools to call with what arguments. LangGraph's ToolNode executes
     the actual tool calls, then loops back here until the LLM stops calling tools.
     """
-    primary_model = os.getenv("PRIMARY_MODEL", "Qwen/Qwen2.5-7B-Instruct")
-    fallback_model = os.getenv("FALLBACK_MODEL", "microsoft/Phi-3.5-mini-instruct")
-
     try:
-        llm = _build_llm(primary_model, fallback_model)
+        llm = _build_llm(_PRIMARY_MODEL, _FALLBACK_MODEL)
         # Bind tools so the LLM knows what's available and can call them
         llm_with_tools = llm.bind_tools(ALL_TOOLS)
     except Exception as e:
@@ -307,9 +310,7 @@ def deduplicate_and_embed_node(state: ResearchState) -> dict:
 
         new_ids = []
         if new_papers:
-            new_ids = embed_and_store(
-                papers=new_papers, posts=[], date=state.date
-            )
+            new_ids = embed_and_store(papers=new_papers, date=state.date)
 
         return {"new_content_ids": new_ids}
 
@@ -335,7 +336,7 @@ def retrieve_context_node(state: ResearchState) -> dict:
 
         docs = retrieve_relevant_context(
             query=synthesis_query,
-            k=20,
+            k=_RAG_K,
             filter_metadata={"date": state.date},
         )
 
@@ -345,12 +346,10 @@ def retrieve_context_node(state: ResearchState) -> dict:
 
     except Exception as e:
         logger.error(f"Context retrieval failed: {e}")
-        # Fall back to raw content
+        # Fall back to raw paper content
         fallback = []
         for p in state.raw_papers[:10]:
             fallback.append(f"PAPER: {p.get('title', '')}\n{p.get('abstract', '')}")
-        for post in state.raw_posts[:10]:
-            fallback.append(f"REDDIT: {post.get('title', '')}\n{post.get('body', '')}")
 
         return {
             "retrieved_context": fallback,
@@ -360,17 +359,16 @@ def retrieve_context_node(state: ResearchState) -> dict:
 
 def synthesize_node(state: ResearchState) -> dict:
     """
-    Generate structured DailyBriefing using with_structured_output().
+    Generate structured DailyBriefing from retrieved context.
 
-    Pattern (Structured Outputs): Using .with_structured_output(DailyBriefing)
-    ensures the LLM response is automatically parsed and validated against
-    our Pydantic schema. No manual JSON parsing needed.
+    Note: HuggingFace Inference API does not reliably support function-calling,
+    so we cannot use .with_structured_output(). Instead, we prompt the LLM to
+    return JSON directly (see SYNTHESIS_USER_TEMPLATE for the embedded schema),
+    then strip markdown fences and call DailyBriefing.model_validate() ourselves.
+    Falls back to _build_fallback_briefing() if parsing fails.
     """
-    primary_model = os.getenv("PRIMARY_MODEL", "Qwen/Qwen2.5-7B-Instruct")
-    fallback_model = os.getenv("FALLBACK_MODEL", "microsoft/Phi-3.5-mini-instruct")
-
     try:
-        llm = _build_llm(primary_model, fallback_model)
+        llm = _build_llm(_PRIMARY_MODEL, _FALLBACK_MODEL)
     except Exception as e:
         logger.error(f"Failed to build synthesis LLM: {e}")
         return {
@@ -392,8 +390,8 @@ def synthesize_node(state: ResearchState) -> dict:
 
     user_prompt = SYNTHESIS_USER_TEMPLATE.format(
         date=state.date,
-        context=context[:7000],
-        web_news=web_news[:1000],
+        context=context[:_SYNTHESIS_CONTEXT_CHARS],
+        web_news=web_news[:_SYNTHESIS_WEB_NEWS_CHARS],
         total_papers=len(state.raw_papers),
     )
 
@@ -424,17 +422,10 @@ def synthesize_node(state: ResearchState) -> dict:
         }
 
 
-def save_report_node(state: ResearchState) -> dict:
-    """
-    Render DailyBriefing Pydantic model to markdown and save to output/.
-    """
-    if not state.briefing:
-        logger.error("No briefing to save")
-        return {}
-
-    briefing = state.briefing
+def render_briefing_markdown(briefing: DailyBriefing) -> str:
+    """Render a DailyBriefing to a markdown string."""
     lines = [
-        f"# Daily AI Research Briefing",
+        "# Daily AI Research Briefing",
         f"## {briefing.date}",
         "",
         f"> Analyzed **{briefing.total_papers_analyzed} papers**",
@@ -516,10 +507,21 @@ def save_report_node(state: ResearchState) -> dict:
         for err in briefing.errors:
             lines.append(f"- {err}")
 
-    markdown = "\n".join(lines)
+    return "\n".join(lines)
 
-    os.makedirs("output", exist_ok=True)
-    filepath = f"output/{briefing.date}.md"
+
+def save_report_node(state: ResearchState) -> dict:
+    """
+    Render DailyBriefing Pydantic model to markdown and save to OUTPUT_DIR.
+    """
+    if not state.briefing:
+        logger.error("No briefing to save")
+        return {}
+
+    markdown = render_briefing_markdown(state.briefing)
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    filepath = f"{OUTPUT_DIR}/{state.briefing.date}.md"
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(markdown)
 

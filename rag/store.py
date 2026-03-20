@@ -18,21 +18,20 @@ from rag.embeddings import get_embeddings
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "ai_research"
+_CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
 
 
 def _get_chroma_client():
     """Get persistent ChromaDB client."""
-    persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
-    return chromadb.PersistentClient(path=persist_dir)
+    return chromadb.PersistentClient(path=_CHROMA_PERSIST_DIR)
 
 
 def _get_vector_store() -> Chroma:
     """Get LangChain Chroma vector store wrapper."""
-    persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
     return Chroma(
         collection_name=COLLECTION_NAME,
         embedding_function=get_embeddings(),
-        persist_directory=persist_dir,
+        persist_directory=_CHROMA_PERSIST_DIR,
     )
 
 
@@ -58,12 +57,12 @@ def get_seen_ids() -> set[str]:
         return set()
 
 
-def embed_and_store(papers: list[dict], posts: list[dict], date: str) -> list[str]:
+def embed_and_store(papers: list[dict], date: str) -> list[str]:
     """
-    Embed new papers and posts, store in ChromaDB with metadata.
+    Embed new papers, store in ChromaDB with metadata.
 
     Each document includes metadata for filtering:
-    - source: 'arxiv' or 'reddit'
+    - source: 'arxiv'
     - date: YYYY-MM-DD
     - source_id: original ID for deduplication
     - url: link to original content
@@ -91,28 +90,6 @@ def embed_and_store(papers: list[dict], posts: list[dict], date: str) -> list[st
                 "url": paper.get("url", ""),
                 "title": paper.get("title", ""),
                 "categories": ",".join(paper.get("categories", [])),
-            }
-        ))
-        ids.append(doc_id)
-
-    # Embed Reddit posts: title + body
-    for post in posts:
-        doc_id = f"reddit_{post['id']}"
-        text = (
-            f"REDDIT [{post.get('subreddit', '')}]: {post['title']}\n\n"
-            f"{post.get('body', '')}"
-        )
-
-        documents.append(Document(
-            page_content=text,
-            metadata={
-                "source": "reddit",
-                "source_id": post["id"],
-                "date": date,
-                "url": post.get("url", ""),
-                "title": post.get("title", ""),
-                "subreddit": post.get("subreddit", ""),
-                "score": post.get("score", 0),
             }
         ))
         ids.append(doc_id)

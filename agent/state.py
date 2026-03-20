@@ -3,7 +3,7 @@ LangGraph state schema using Pydantic v2.
 All state transitions are validated at each node.
 """
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from schemas.briefing import DailyBriefing
 
 
@@ -36,5 +36,4 @@ class ResearchState(BaseModel):
     date: str = Field(default="")
     errors: list[str] = Field(default_factory=list)
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

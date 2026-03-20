@@ -6,12 +6,12 @@ ToolNode automatically parse and execute the LLM's tool calls. The
 docstrings become the tool descriptions the LLM uses to decide when
 to call each tool.
 """
-import os
 import logging
 
 import arxiv
 from langchain_core.tools import tool
-from tavily import TavilyClient
+
+from agent.tavily import tavily_search
 
 logger = logging.getLogger(__name__)
 
@@ -80,34 +80,25 @@ def web_search(query: str) -> str:
     Returns:
         String with search results and snippets
     """
-    try:
-        api_key = os.getenv("TAVILY_API_KEY")
-        if not api_key:
-            return "Web search unavailable: TAVILY_API_KEY not set"
+    import os
+    if not os.getenv("TAVILY_API_KEY"):
+        return "Web search unavailable: TAVILY_API_KEY not set"
 
-        client = TavilyClient(api_key=api_key)
-        response = client.search(
-            query=query,
-            search_depth="basic",
-            max_results=5,
-            include_answer=True,
+    response = tavily_search(query, max_results=5, include_answer=True)
+    if not response:
+        return "Web search failed or TAVILY_API_KEY not set"
+
+    results = []
+    if response.get("answer"):
+        results.append(f"Summary: {response['answer']}\n")
+
+    for r in response.get("results", []):
+        results.append(
+            f"- [{r.get('title', 'No title')}]({r.get('url', '')}): "
+            f"{r.get('content', '')[:300]}"
         )
 
-        results = []
-        if response.get("answer"):
-            results.append(f"Summary: {response['answer']}\n")
-
-        for r in response.get("results", []):
-            results.append(
-                f"- [{r.get('title', 'No title')}]({r.get('url', '')}): "
-                f"{r.get('content', '')[:300]}"
-            )
-
-        return "\n".join(results) if results else "No results found"
-
-    except Exception as e:
-        logger.error(f"Web search failed: {e}")
-        return f"Web search failed: {str(e)}"
+    return "\n".join(results) if results else "No results found"
 
 
 # All tools for binding to the LLM

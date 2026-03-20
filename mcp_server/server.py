@@ -23,6 +23,8 @@ from rag.retriever import retrieve_across_dates
 
 logger = logging.getLogger(__name__)
 
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
+
 app = Server("ai-research-briefing")
 
 
@@ -83,22 +85,40 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
+async def _dispatch_run_daily_briefing(arguments: dict) -> list[types.TextContent]:
+    return await _run_daily_briefing()
+
+
+async def _dispatch_get_latest_briefing(arguments: dict) -> list[types.TextContent]:
+    return await _get_latest_briefing()
+
+
+async def _dispatch_search_past_briefings(arguments: dict) -> list[types.TextContent]:
+    return await _search_past_briefings(
+        query=arguments.get("query", ""),
+        k=arguments.get("k", 10),
+    )
+
+
+async def _dispatch_get_trending_topics(arguments: dict) -> list[types.TextContent]:
+    return await _get_trending_topics(days=arguments.get("days", 7))
+
+
+_TOOL_HANDLERS = {
+    "run_daily_briefing": _dispatch_run_daily_briefing,
+    "get_latest_briefing": _dispatch_get_latest_briefing,
+    "search_past_briefings": _dispatch_search_past_briefings,
+    "get_trending_topics": _dispatch_get_trending_topics,
+}
+
+
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     """Handle tool calls from MCP clients."""
-    if name == "run_daily_briefing":
-        return await _run_daily_briefing()
-    elif name == "get_latest_briefing":
-        return await _get_latest_briefing()
-    elif name == "search_past_briefings":
-        return await _search_past_briefings(
-            query=arguments.get("query", ""),
-            k=arguments.get("k", 10),
-        )
-    elif name == "get_trending_topics":
-        return await _get_trending_topics(days=arguments.get("days", 7))
-    else:
+    handler = _TOOL_HANDLERS.get(name)
+    if handler is None:
         return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
+    return await handler(arguments)
 
 
 async def _run_daily_briefing() -> list[types.TextContent]:
@@ -114,7 +134,7 @@ async def _run_daily_briefing() -> list[types.TextContent]:
             config={"recursion_limit": 25},
         )
 
-        filepath = f"output/{date}.md"
+        filepath = f"{OUTPUT_DIR}/{date}.md"
         if os.path.exists(filepath):
             with open(filepath) as f:
                 content = f.read()
@@ -126,7 +146,7 @@ async def _run_daily_briefing() -> list[types.TextContent]:
 
 async def _get_latest_briefing() -> list[types.TextContent]:
     """Return most recent saved briefing."""
-    files = sorted(glob.glob("output/*.md"), reverse=True)
+    files = sorted(glob.glob(f"{OUTPUT_DIR}/*.md"), reverse=True)
     if not files:
         return [types.TextContent(
             type="text",
