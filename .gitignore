@@ -19,8 +19,6 @@ env/
 # ChromaDB storage
 chroma_db/
 
-# Output (keep directory, ignore generated reports)
-output/*.md
 
 # Claude Code
 .claude/
