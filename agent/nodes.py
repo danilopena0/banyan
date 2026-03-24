@@ -11,7 +11,7 @@ import os
 import re
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+from langchain_groq import ChatGroq
 
 from agent.state import ResearchState
 from agent.tavily import tavily_search
@@ -28,8 +28,8 @@ from schemas.briefing import DailyBriefing
 logger = logging.getLogger(__name__)
 
 # --- Module-level configuration constants ---
-_PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "Qwen/Qwen2.5-7B-Instruct")
-_FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "microsoft/Phi-3.5-mini-instruct")
+_PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "llama-3.3-70b-versatile")
+_FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "llama-3.1-8b-instant")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 
 # LLM generation settings
@@ -53,40 +53,36 @@ _SYNTHESIS_WEB_NEWS_CHARS = 1000
 
 def _build_llm(model_id: str, fallback_model_id: str = None):
     """
-    Build a ChatHuggingFace LLM with automatic fallback.
+    Build a ChatGroq LLM with automatic fallback.
 
-    Pattern: Wrapping HuggingFaceEndpoint in ChatHuggingFace gives us
-    the standard ChatModel interface (bind_tools, with_structured_output, etc.)
+    Pattern: ChatGroq gives us the standard ChatModel interface
+    (bind_tools, with_structured_output, etc.) backed by Groq's free tier.
+    Fallback triggers on construction failure (e.g. invalid model name).
+    API errors (rate limits, auth) surface at invoke() time.
     """
-    token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-    if not token:
-        raise ValueError("HUGGINGFACEHUB_API_TOKEN environment variable not set")
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY environment variable not set")
 
     try:
-        endpoint = HuggingFaceEndpoint(
-            repo_id=model_id,
-            huggingfacehub_api_token=token,
-            task="text-generation",
-            max_new_tokens=_MAX_NEW_TOKENS,
+        return ChatGroq(
+            model=model_id,
+            groq_api_key=api_key,
+            max_tokens=_MAX_NEW_TOKENS,
             temperature=_TEMPERATURE,
-            do_sample=True,
         )
-        return ChatHuggingFace(llm=endpoint)
     except Exception as e:
         if fallback_model_id:
             logger.warning(
                 f"Primary model {model_id} failed ({e}), "
                 f"trying fallback {fallback_model_id}"
             )
-            endpoint = HuggingFaceEndpoint(
-                repo_id=fallback_model_id,
-                huggingfacehub_api_token=token,
-                task="text-generation",
-                max_new_tokens=_MAX_NEW_TOKENS,
+            return ChatGroq(
+                model=fallback_model_id,
+                groq_api_key=api_key,
+                max_tokens=_MAX_NEW_TOKENS,
                 temperature=_TEMPERATURE,
-                do_sample=True,
             )
-            return ChatHuggingFace(llm=endpoint)
         raise
 
 
