@@ -1,6 +1,6 @@
 # Daily AI Research Briefing Agent
 
-An autonomous AI agent that researches and synthesizes daily AI/ML developments using production-grade patterns: **ReAct tool calling**, **RAG**, **structured outputs**, and **MCP server** exposure. Runs entirely on free tiers using HuggingFace + Tavily.
+An autonomous AI agent that researches and synthesizes daily AI/ML developments using production-grade patterns: **ReAct tool calling**, **RAG**, **structured outputs**, and **MCP server** exposure. Runs entirely on free tiers using Groq + Tavily.
 
 ## Quick Start
 
@@ -8,7 +8,7 @@ An autonomous AI agent that researches and synthesizes daily AI/ML developments 
 git clone <your-repo-url> && cd banyan
 python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env   # add HUGGINGFACEHUB_API_TOKEN and TAVILY_API_KEY
+cp .env.example .env   # add GROQ_API_KEY and TAVILY_API_KEY
 python main.py         # briefing saved to output/YYYY-MM-DD.md
 ```
 
@@ -27,8 +27,8 @@ A daily markdown briefing with:
 | Component | Technology | Why |
 |-----------|------------|-----|
 | **Agent orchestration** | LangGraph | ReAct loop with ToolNode, typed state |
-| **Primary LLM** | HuggingFace Inference API (Qwen2.5-7B-Instruct) | Free tier, chat completions |
-| **Fallback LLM** | HuggingFace Inference API (Phi-3.5-mini-instruct) | Automatic failover |
+| **Primary LLM** | Groq (llama-3.3-70b-versatile) | Free tier, fast inference, tool calling |
+| **Fallback LLM** | Groq (llama-3.1-8b-instant) | Automatic failover, higher daily quota |
 | **Embeddings** | sentence-transformers (all-MiniLM-L6-v2) | Local, CPU-fast, zero cost |
 | **Vector store** | ChromaDB | Embedded, persistent, metadata filtering |
 | **Paper source** | arXiv Python library | Always free |
@@ -40,63 +40,58 @@ A daily markdown briefing with:
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                          LangGraph Agent Graph                            │
-│                                                                           │
-│  START                                                                    │
-│    │                                                                      │
-│    ▼                                                                      │
-│  ┌─────────────────┐                                                      │
-│  │  fetch_ai_news  │  3 curated Tavily queries (releases, benchmarks,     │
-│  │                 │  industry news) → stored in state.web_news           │
-│  └─────────────────┘                                                      │
-│         │                                                                 │
-│         ▼                                                                 │
-│  ┌─────────────────┐  tool_calls?  ┌──────────────────────────────────┐  │
-│  │ research_agent  │ ── YES ──────▶│            ToolNode              │  │
-│  │  (ReAct loop)   │ ◀────────────│  search_arxiv                    │  │
-│  │  Qwen2.5-7B     │              │  web_search (Tavily)             │  │
-│  └─────────────────┘              └──────────────────────────────────┘  │
-│         │ NO (done)                                                       │
-│         ▼                                                                 │
-│  ┌─────────────────┐                                                      │
-│  │ collect_results │  Parse papers from ToolMessage objects               │
-│  └─────────────────┘                                                      │
-│         │                                                                 │
-│         ▼                                                                 │
-│  ┌─────────────────┐                                                      │
-│  │ enrich_papers   │  Tavily search per paper title → web_mentions score  │
-│  │                 │  Papers with web_mentions > 0 → most_discussed       │
-│  └─────────────────┘                                                      │
-│         │                                                                 │
-│         ▼                                                                 │
-│  ┌─────────────────┐            ┌──────────────────────────────────────┐  │
-│  │deduplicate_embed│ ─ store ──▶│             ChromaDB                 │  │
-│  └─────────────────┘           │  all-MiniLM-L6-v2 embeds             │  │
-│         │                      │  persistent local storage             │  │
-│         ▼                      └──────────────────────────────────────┘  │
-│  ┌─────────────────┐                          ▲                           │
-│  │retrieve_context │ ── semantic search ───────┘                          │
-│  └─────────────────┘    (top-k relevant chunks)                           │
-│         │                                                                 │
-│         ▼                                                                 │
-│  ┌─────────────────┐                                                      │
-│  │    synthesize   │  JSON prompt → DailyBriefing (Pydantic validated)    │
-│  └─────────────────┘                                                      │
-│         │                                                                 │
-│         ▼                                                                 │
-│  ┌─────────────────┐                                                      │
-│  │ enrich_concept  │  Tavily search → beginner resource URL for concept   │
-│  └─────────────────┘                                                      │
-│         │                                                                 │
-│         ▼                                                                 │
-│  ┌─────────────────┐                                                      │
-│  │   save_report   │  Render to markdown → output/YYYY-MM-DD.md           │
-│  └─────────────────┘                                                      │
-│         │                                                                 │
-│        END                                                                │
-└──────────────────────────────────────────────────────────────────────────┘
+START
+  │
+  ▼
+fetch_ai_news          3 Tavily queries (model releases, benchmarks, industry news)
+  │                    → state.web_news
+  ▼
+research_agent ◄─────┐  Groq llama-3.3-70b decides which tools to call
+  │                  │  → appends AIMessage to state.messages
+  │                  │
+  ├─[has tool_calls]─┤
+  │                  │
+  ▼                  │
+tools (ToolNode)     │  Executes tool calls chosen by the LLM:
+  │                  │    • search_arxiv  → JSON array of papers
+  │                  └─   • web_search   → plain text snippets (Tavily)
+  │                        loops back until LLM stops calling tools
+  ├─[no tool_calls]
+  │
+  ▼
+collect_results        Scans ALL ToolMessages in state.messages
+  │                    Extracts paper dicts (JSON with "abstract" key)
+  │                    → state.raw_papers
+  ▼
+enrich_papers          Tavily search per paper title (up to 20 papers)
+  │                    Adds web_mentions + snippets to each paper
+  │                    Papers with web_mentions > 0 → flagged as most_discussed
+  ▼
+deduplicate_embed      Checks ChromaDB for already-seen IDs (incremental runs)
+  │                    Embeds only new papers via local sentence-transformers
+  │                    → persisted to ChromaDB
+  ▼
+retrieve_context       Semantic search in ChromaDB (top-20 chunks)
+  │                    Query: "most important AI/ML developments for {date}"
+  │                    → state.retrieved_context
+  ▼
+synthesize             Groq llama-3.3-70b generates structured JSON briefing
+  │                    Input: retrieved chunks + web news + paper web scores
+  │                    Output: DailyBriefing validated by Pydantic
+  ▼
+enrich_concept         Tavily → beginner resource URL for concept_of_the_day
+  │                    Prefers distill.pub, colah.github, lilianweng, arxiv
+  ▼
+save_report            Renders DailyBriefing → output/YYYY-MM-DD.md
+  │
+END
 ```
+
+**Groq is called twice per run** — once in the ReAct loop (tool calling) and once for synthesis. Message history is windowed before each LLM call to stay within the 12K TPM free-tier limit.
+
+**Tavily is called ~25 times per run** across three stages (see [Tavily Usage](#tavily-usage) below).
+
+**Embeddings never leave your machine** — sentence-transformers runs locally on CPU.
 
 ## Tavily Usage
 
@@ -115,7 +110,7 @@ This means `most_discussed` is determined by actual online discussion, not LLM g
 
 | Service | Free Tier | Usage per run |
 |---------|-----------|---------------|
-| HuggingFace Inference API | Free (rate limited) | ~5 LLM calls |
+| Groq API | 1,000 RPD (70B), 14,400 RPD (8B) | ~5 LLM calls |
 | sentence-transformers | Local, always free | Embeddings |
 | arXiv API | Always free | Paper data |
 | Tavily | 1,000 searches/month | ~25 calls |
@@ -166,14 +161,16 @@ docs = retrieve_relevant_context(query=synthesis_query, k=20)
 
 ### 4. Structured Outputs via JSON Prompt
 
-HuggingFace's free API doesn't support JSON schema mode, so structured outputs are achieved by prompting for raw JSON and validating with Pydantic.
+Groq's free tier doesn't guarantee JSON schema mode for all models, so structured outputs are achieved by prompting for raw JSON, sanitizing invalid escape sequences, and validating with Pydantic.
 
 ```python
 # agent/nodes.py
 response = llm.invoke(messages)
 json_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", response.content)
-data = json.loads(json_match.group(1) if json_match else response.content)
-briefing = DailyBriefing.model_validate(data)
+json_str = json_match.group(1) if json_match else response.content.strip()
+# Fix invalid escape sequences LLMs sometimes emit (e.g. \s, \e)
+json_str = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_str)
+briefing = DailyBriefing.model_validate(json.loads(json_str))
 ```
 
 ### 5. MCP Server
@@ -270,10 +267,10 @@ banyan/
 
 ### 1. Get API Keys
 
-**HuggingFace** (required)
-- Go to https://huggingface.co/settings/tokens
-- Create a token with "Read" access
-- Set both `HUGGINGFACEHUB_API_TOKEN` and `HF_TOKEN` to the same value
+**Groq** (required)
+- Go to https://console.groq.com
+- Create a free account and generate an API key
+- Free tier: 1,000 requests/day on llama-3.3-70b, no credit card needed
 
 **Tavily** (strongly recommended — powers paper ranking + news)
 - Go to https://tavily.com
@@ -291,7 +288,7 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Edit .env — add HUGGINGFACEHUB_API_TOKEN, HF_TOKEN, and TAVILY_API_KEY
+# Edit .env — add GROQ_API_KEY and TAVILY_API_KEY
 
 python main.py
 ```
@@ -304,8 +301,7 @@ python main.py
 
 | Secret | Where to get it |
 |--------|----------------|
-| `HUGGINGFACEHUB_API_TOKEN` | https://huggingface.co/settings/tokens |
-| `HF_TOKEN` | Same value as above |
+| `GROQ_API_KEY` | https://console.groq.com |
 | `TAVILY_API_KEY` | https://tavily.com |
 
 4. The workflow runs at **7am UTC daily** and commits briefings to `output/`
@@ -325,8 +321,7 @@ Add to your Claude Desktop config:
       "command": "python",
       "args": ["/absolute/path/to/banyan/mcp_main.py"],
       "env": {
-        "HUGGINGFACEHUB_API_TOKEN": "hf_your_token",
-        "HF_TOKEN": "hf_your_token",
+        "GROQ_API_KEY": "gsk_your_key",
         "TAVILY_API_KEY": "tvly_your_key"
       }
     }
@@ -344,11 +339,10 @@ Restart Claude Desktop. You can then say:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HUGGINGFACEHUB_API_TOKEN` | HuggingFace API token **(required)** | — |
-| `HF_TOKEN` | HuggingFace token (new name, set same value) **(required)** | — |
+| `GROQ_API_KEY` | Groq API key **(required)** — free at console.groq.com | — |
 | `TAVILY_API_KEY` | Tavily search API key **(strongly recommended)** | — |
-| `PRIMARY_MODEL` | Primary HuggingFace model | `Qwen/Qwen2.5-7B-Instruct` |
-| `FALLBACK_MODEL` | Fallback HuggingFace model | `microsoft/Phi-3.5-mini-instruct` |
+| `PRIMARY_MODEL` | Groq model for research + synthesis | `llama-3.3-70b-versatile` |
+| `FALLBACK_MODEL` | Groq fallback model | `llama-3.1-8b-instant` |
 | `EMBEDDING_MODEL` | Local sentence-transformers model | `sentence-transformers/all-MiniLM-L6-v2` |
 | `CHROMA_PERSIST_DIR` | ChromaDB storage path | `./chroma_db` |
 

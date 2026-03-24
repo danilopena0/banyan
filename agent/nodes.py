@@ -87,6 +87,33 @@ def _build_llm(model_id: str, fallback_model_id: str = None):
 
 
 
+_TOOL_RESULT_TRUNCATE_CHARS = 300
+
+
+def _window_messages(messages: list, keep_recent: int = 6) -> list:
+    """
+    Trim message history and truncate tool results to stay within TPM limits.
+
+    Two-pronged approach:
+    1. Window: keep system + human messages, then only the last `keep_recent`
+       messages from the ReAct loop.
+    2. Truncate: ToolMessage content is capped at _TOOL_RESULT_TRUNCATE_CHARS —
+       the LLM only needs to know what was found, not re-read every abstract.
+       Full content is preserved in state.messages for collect_tool_results.
+    """
+    windowed = messages[:2] + messages[-(keep_recent):] if len(messages) > keep_recent + 2 else messages
+
+    truncated = []
+    for msg in windowed:
+        if isinstance(msg, ToolMessage) and isinstance(msg.content, str) and len(msg.content) > _TOOL_RESULT_TRUNCATE_CHARS:
+            msg = ToolMessage(
+                content=msg.content[:_TOOL_RESULT_TRUNCATE_CHARS] + "… [truncated]",
+                tool_call_id=msg.tool_call_id,
+            )
+        truncated.append(msg)
+    return truncated
+
+
 def fetch_ai_news_node(state: ResearchState) -> dict:
     """
     Fetch curated AI/ML news via Tavily before the ReAct loop.
@@ -222,8 +249,12 @@ def research_agent_node(state: ResearchState) -> dict:
             ),
         ]
 
+    # Window messages to stay within TPM limits: always keep system + human,
+    # then only the most recent exchanges to avoid 413s on long ReAct loops.
+    windowed = _window_messages(messages, keep_recent=6)
+
     try:
-        response = llm_with_tools.invoke(messages)
+        response = llm_with_tools.invoke(windowed)
         return {"messages": messages + [response]}
     except Exception as e:
         logger.error(f"LLM invocation failed: {e}")
@@ -403,6 +434,9 @@ def synthesize_node(state: ResearchState) -> dict:
         # Strip markdown code fences if present
         json_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", raw)
         json_str = json_match.group(1) if json_match else raw.strip()
+
+        # Fix invalid JSON escape sequences (e.g. \s, \e) that LLMs sometimes emit
+        json_str = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_str)
 
         data = json.loads(json_str)
         briefing = DailyBriefing.model_validate(data)
