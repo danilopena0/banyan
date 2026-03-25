@@ -23,6 +23,7 @@ chroma_db/
 # Claude Code
 .claude/
 skills/
+ARCHITECTURE.md
 
 # IDE
 .idea/
