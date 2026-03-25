@@ -8,7 +8,7 @@
 **Name:** Daily AI Research Briefing Agent (banyan)
 **Type:** AI agent / agentic pipeline
 **Status:** active-development
-**One-liner:** Autonomous LangGraph agent that fetches arXiv papers + Reddit posts + web search, embeds them in ChromaDB, and synthesizes a structured daily markdown briefing using HuggingFace LLMs — all free tier.
+**One-liner:** Autonomous LangGraph agent that fetches HuggingFace Papers + arXiv + web search, embeds them in ChromaDB, and synthesizes a structured daily markdown briefing using Groq LLMs — all free tier.
 
 ## Architecture Summary
 
@@ -16,7 +16,7 @@
 main.py → agent/graph.py (LangGraph compiled graph)
               │
               ├── research_agent_node   [Mistral-7B via HF Inference API]
-              │     └── ToolNode        [search_arxiv | search_reddit | web_search]
+              │     └── ToolNode        [search_hf_papers | search_arxiv | web_search]
               │     (ReAct loop until LLM stops calling tools)
               │
               ├── collect_tool_results  [parse ToolMessage objects → dicts]
@@ -34,13 +34,13 @@ MCP server: mcp_main.py → mcp_server/server.py (4 tools for Claude Desktop)
 |------|-------------|
 | `agent/graph.py` | LangGraph graph definition — nodes + edges + ReAct loop |
 | `agent/nodes.py` | All node functions; also `_build_llm()` with fallback logic |
-| `agent/tools.py` | `@tool` decorated: `search_arxiv`, `search_reddit`, `web_search` |
+| `agent/tools.py` | `@tool` decorated: `search_hf_papers`, `search_arxiv`, `web_search` |
 | `agent/state.py` | `ResearchState` Pydantic model — typed state for the graph |
 | `agent/prompts.py` | All LLM prompts centralized here |
 | `rag/embeddings.py` | `get_embeddings()` — lru_cached HuggingFaceEmbeddings (local CPU) |
 | `rag/store.py` | `get_seen_ids()`, `embed_and_store()` — ChromaDB read/write |
 | `rag/retriever.py` | `retrieve_relevant_context()`, `retrieve_across_dates()` |
-| `schemas/` | Pydantic v2 models: `ArxivPaper`, `PaperSummary`, `RedditPost`, `DailyBriefing` |
+| `schemas/` | Pydantic v2 models: `PaperSummary`, `DailyBriefing`, `ConceptExplanation` |
 | `mcp_server/server.py` | MCP server with 4 tools |
 | `output/` | Generated markdown briefings (auto-committed by GitHub Actions) |
 | `chroma_db/` | ChromaDB persistent storage (gitignored) |
@@ -60,7 +60,7 @@ MCP server: mcp_main.py → mcp_server/server.py (4 tools for Claude Desktop)
 
 - **All secrets via env vars**: Never hardcode tokens. `.env` is gitignored. `.env.example` shows shape only.
 - **Single responsibility per node**: Each LangGraph node does exactly one thing
-- **Error resilience**: Every external call (arXiv, Reddit, HF API, ChromaDB) wrapped in try/except — append to `state.errors`, continue
+- **Error resilience**: Every external call (HF Papers, arXiv, Groq, ChromaDB) wrapped in try/except — append to `state.errors`, continue
 - **No re-embedding duplicates**: Always check `get_seen_ids()` before calling `embed_and_store()`
 - **Structured outputs**: LLM synthesis always uses `.with_structured_output(DailyBriefing)` — no raw string parsing
 
@@ -96,10 +96,7 @@ python -c "from agent.graph import build_graph; print('OK')"
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `HUGGINGFACEHUB_API_TOKEN` | YES | Free at huggingface.co/settings/tokens |
-| `REDDIT_CLIENT_ID` | No | reddit.com/prefs/apps |
-| `REDDIT_CLIENT_SECRET` | No | reddit.com/prefs/apps |
-| `REDDIT_USER_AGENT` | No | e.g. `AIBriefingAgent/1.0` |
+| `GROQ_API_KEY` | YES | Free at console.groq.com |
 | `TAVILY_API_KEY` | No | tavily.com free tier |
 | `PRIMARY_MODEL` | No | Default: `mistralai/Mistral-7B-Instruct-v0.3` |
 | `FALLBACK_MODEL` | No | Default: `HuggingFaceH4/zephyr-7b-beta` |
@@ -114,7 +111,7 @@ python -c "from agent.graph import build_graph; print('OK')"
 pytest tests/ -v
 
 # Priority test targets:
-# - tools.py: mock arXiv/Reddit/Tavily, verify return shape
+# - tools.py: mock HF Papers/arXiv/Tavily, verify return shape
 # - store.py: embed + retrieve roundtrip
 # - nodes.py: mock LLM calls, test state transitions
 ```

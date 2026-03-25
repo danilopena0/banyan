@@ -1,5 +1,5 @@
 """Pydantic model for the final structured briefing output."""
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from pydantic import BaseModel, Field, field_validator
 from schemas.paper import PaperSummary
 
@@ -40,8 +40,9 @@ class DailyBriefing(BaseModel):
     emerging_themes: str = Field(
         description=(
             "2-3 paragraph analysis of emerging trends across all sources. "
-            "Anchor observations in specific techniques, objectives, or theoretical results — "
-            "use inline math notation (e.g. KL divergence, attention formulas) where it sharpens the insight."
+            "Anchor observations in specific techniques, objectives, or theoretical results. "
+            "Write equations in plain ASCII (e.g. 'L = -log P(y|x)'). "
+            "NEVER use LaTeX delimiters ($, $$) or backslash commands (\\sigma, \\cdot, etc.)."
         )
     )
     web_insights: list[str] = Field(
@@ -57,10 +58,20 @@ class DailyBriefing(BaseModel):
             return [s.strip() for s in v.split("\n") if s.strip()]
         return v
 
-    concept_of_the_day: Optional[ConceptExplanation] = Field(
-        description="A foundational DS/ML concept drawn from today's papers",
-        default=None
+    concepts_of_the_day: list[ConceptExplanation] = Field(
+        description="1-3 foundational DS/ML concepts drawn from today's papers — more when multiple distinct concepts appear",
+        default_factory=list
     )
+
+    @field_validator("concepts_of_the_day", mode="before")
+    @classmethod
+    def coerce_concepts(cls, v: Any) -> list:
+        """LLMs may return a single object instead of a list — wrap it."""
+        if isinstance(v, dict):
+            return [v]
+        if v is None:
+            return []
+        return v
     total_papers_analyzed: int = Field(default=0)
     errors: list[str] = Field(
         description="Non-fatal errors encountered during research",

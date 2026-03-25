@@ -128,12 +128,12 @@ class TestCollectToolResults:
         assert result["raw_papers"] == []
 
     def test_collect_json_list_without_abstract_key_is_skipped(self):
-        # Arrange — valid JSON list but items don't look like arXiv papers
-        reddit_data = json.dumps([
+        # Arrange — valid JSON list but items don't look like paper results
+        non_paper_data = json.dumps([
             {"post_id": "abc", "title": "Discussion post", "score": 100},
         ])
         state = _make_state([
-            ToolMessage(content=reddit_data, tool_call_id="call_reddit_001"),
+            ToolMessage(content=non_paper_data, tool_call_id="call_tool_001"),
         ])
 
         # Act

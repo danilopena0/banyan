@@ -11,11 +11,9 @@ class PaperSummary(BaseModel):
     )
     methods: str = Field(
         description=(
-            "The core methods, architectures, or techniques used. Include conceptual and mathematical detail where relevant — "
-            "e.g. loss functions, objective formulations, architectural choices, training procedures, or key algorithmic steps. "
-            "Example: 'Fine-tunes LLaMA-3 using DPO (Direct Preference Optimization), which optimizes a Bradley-Terry preference "
-            "model directly without a separate reward model. The training objective is: L = -E[log σ(β log π_θ(y_w|x)/π_ref(y_w|x) "
-            "- β log π_θ(y_l|x)/π_ref(y_l|x))]'"
+            "The core methods, architectures, or techniques used. Describe key ideas and loss functions in plain text — "
+            "e.g. 'optimizes a contrastive objective where positive pairs are pulled together and negatives pushed apart'. "
+            "Use ASCII-style math (L = ...) for equations. NEVER use LaTeX delimiters ($, $$, \\sigma, \\cdot) or backslash commands."
         )
     )
     significance: str = Field(

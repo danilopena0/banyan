@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_groq import ChatGroq
@@ -20,6 +21,7 @@ from agent.prompts import (
     SYNTHESIS_SYSTEM_PROMPT,
     SYNTHESIS_USER_TEMPLATE,
 )
+from agent.concepts import CORE_DS_CONCEPTS
 from agent.tools import ALL_TOOLS
 from rag.store import embed_and_store, get_seen_ids
 from rag.retriever import retrieve_relevant_context
@@ -164,6 +166,16 @@ def enrich_papers_node(state: ResearchState) -> dict:
             enriched.append(paper)
             continue
 
+        # HF Papers already include upvotes — skip Tavily call and derive web_mentions
+        # from the social signal so we don't burn API quota unnecessarily.
+        if paper.get("hf_upvotes") is not None:
+            enriched.append({
+                **paper,
+                "web_mentions": 1 if paper["hf_upvotes"] > 0 else 0,
+                "web_context": f"HF upvotes: {paper['hf_upvotes']}",
+            })
+            continue
+
         response = tavily_search(f'"{title}" research paper', max_results=_ENRICH_TAVILY_RESULTS_PER_PAPER)
         results = response.get("results", [])
         snippets = [r.get("content", "")[:150] for r in results if r.get("content")]
@@ -185,38 +197,39 @@ def enrich_papers_node(state: ResearchState) -> dict:
 
 def enrich_concept_node(state: ResearchState) -> dict:
     """
-    Find a beginner-friendly resource URL for the concept of the day via Tavily.
+    Find a beginner-friendly resource URL for each concept via Tavily.
     """
-    if not state.briefing or not state.briefing.concept_of_the_day:
+    if not state.briefing or not state.briefing.concepts_of_the_day:
         return {}
     if not os.getenv("TAVILY_API_KEY"):
         return {}
 
-    concept_name = state.briefing.concept_of_the_day.name
-    response = tavily_search(
-        f"{concept_name} explained machine learning beginner guide",
-        max_results=_ENRICH_CONCEPT_RESULTS,
-    )
-
-    results = response.get("results", [])
-    # Prefer results from known educational sites
     preferred_domains = ("distill.pub", "colah.github", "lilianweng", "arxiv", "explained.ai")
-    url = ""
-    for r in results:
-        r_url = r.get("url", "")
-        if any(d in r_url for d in preferred_domains):
-            url = r_url
-            break
-    if not url and results:
-        url = results[0].get("url", "")
+    briefing = state.briefing
 
-    if url:
-        briefing = state.briefing
-        briefing.concept_of_the_day.learn_more_url = url
-        logger.info(f"Concept '{concept_name}' learn_more_url: {url}")
-        return {"briefing": briefing}
+    for concept in briefing.concepts_of_the_day:
+        if concept.learn_more_url:
+            continue  # already set
 
-    return {}
+        response = tavily_search(
+            f"{concept.name} explained machine learning beginner guide",
+            max_results=_ENRICH_CONCEPT_RESULTS,
+        )
+        results = response.get("results", [])
+        url = ""
+        for r in results:
+            r_url = r.get("url", "")
+            if any(d in r_url for d in preferred_domains):
+                url = r_url
+                break
+        if not url and results:
+            url = results[0].get("url", "")
+
+        if url:
+            concept.learn_more_url = url
+            logger.info(f"Concept '{concept.name}' learn_more_url: {url}")
+
+    return {"briefing": briefing}
 
 
 def research_agent_node(state: ResearchState) -> dict:
@@ -229,8 +242,9 @@ def research_agent_node(state: ResearchState) -> dict:
     """
     try:
         llm = _build_llm(_PRIMARY_MODEL, _FALLBACK_MODEL)
-        # Bind tools so the LLM knows what's available and can call them
-        llm_with_tools = llm.bind_tools(ALL_TOOLS)
+        # tool_choice="auto" explicitly tells Groq to use JSON function-call format,
+        # preventing the model from falling back to <function=...> XML-style generation.
+        llm_with_tools = llm.bind_tools(ALL_TOOLS, tool_choice="auto")
     except Exception as e:
         logger.error(f"Failed to build LLM: {e}")
         return {"errors": state.errors + [f"LLM initialization failed: {e}"]}
@@ -243,8 +257,8 @@ def research_agent_node(state: ResearchState) -> dict:
             HumanMessage(
                 content=(
                     f"Today is {state.date}. Please research today's most important "
-                    f"AI/ML developments. Search arXiv for recent papers, check key "
-                    f"AI subreddits, and do web searches for major news."
+                    f"AI/ML developments. Use search_hf_papers for broad topic coverage, "
+                    f"search_arxiv for specific topics, and web_search for industry news."
                 )
             ),
         ]
@@ -405,21 +419,30 @@ def synthesize_node(state: ResearchState) -> dict:
 
     context = "\n\n---\n\n".join(state.retrieved_context) if state.retrieved_context else "No context retrieved"
 
-    # Annotate context chunks with web_mentions so LLM can rank by discussion
-    papers_with_mentions = [
-        f"[web_mentions={p.get('web_mentions', 0)}] {p.get('title', '')}"
-        for p in state.raw_papers if p.get("title")
-    ]
+    # Annotate context chunks with relevance signals so LLM can rank by discussion.
+    # For HF Papers, include upvotes directly; for arXiv, use web_mentions from Tavily.
+    papers_with_mentions = []
+    for p in state.raw_papers:
+        if not p.get("title"):
+            continue
+        upvotes = p.get("hf_upvotes")
+        if upvotes is not None:
+            papers_with_mentions.append(f"[hf_upvotes={upvotes}] {p['title']}")
+        else:
+            papers_with_mentions.append(f"[web_mentions={p.get('web_mentions', 0)}] {p['title']}")
     if papers_with_mentions:
         context = "Paper web presence scores:\n" + "\n".join(papers_with_mentions) + "\n\n---\n\n" + context
 
     web_news = "\n".join(f"- {item}" for item in state.web_news) if state.web_news else "No web news fetched"
+
+    concepts_list = "\n".join(f"- {c}" for c in CORE_DS_CONCEPTS)
 
     user_prompt = SYNTHESIS_USER_TEMPLATE.format(
         date=state.date,
         context=context[:_SYNTHESIS_CONTEXT_CHARS],
         web_news=web_news[:_SYNTHESIS_WEB_NEWS_CHARS],
         total_papers=len(state.raw_papers),
+        concepts=concepts_list,
     )
 
     messages = [
@@ -452,6 +475,47 @@ def synthesize_node(state: ResearchState) -> dict:
         }
 
 
+_LATEX_SYMBOLS = {
+    r"\sigma": "σ", r"\theta": "θ", r"\alpha": "α", r"\beta": "β",
+    r"\gamma": "γ", r"\delta": "δ", r"\epsilon": "ε", r"\lambda": "λ",
+    r"\mu": "μ", r"\pi": "π", r"\tau": "τ", r"\phi": "φ", r"\psi": "ψ",
+    r"\omega": "ω", r"\nabla": "∇", r"\partial": "∂", r"\infty": "∞",
+    r"\leq": "≤", r"\geq": "≥", r"\neq": "≠", r"\approx": "≈",
+    r"\rightarrow": "→", r"\leftarrow": "←", r"\cdot": "·",
+    r"\times": "×", r"\in": "∈", r"\sum": "Σ", r"\prod": "Π",
+    r"\log": "log", r"\exp": "exp", r"\max": "max", r"\min": "min",
+}
+
+
+def _strip_latex(text: Any) -> str:
+    """
+    Remove LaTeX math delimiters and replace common commands with unicode.
+
+    Safety-net post-processor: the prompt forbids LaTeX, but if the LLM
+    produces it anyway this ensures the markdown output stays readable.
+    """
+    if not isinstance(text, str):
+        return text
+
+    # Replace display math blocks first, then inline
+    text = re.sub(r"\$\$(.+?)\$\$", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"\$(.+?)\$", r"\1", text)
+    # \\( ... \\) and \\[ ... \\] delimiters
+    text = re.sub(r"\\\\\((.+?)\\\\\)", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"\\\\\[(.+?)\\\\\]", r"\1", text, flags=re.DOTALL)
+
+    # Replace known LaTeX commands with unicode
+    for cmd, symbol in _LATEX_SYMBOLS.items():
+        text = text.replace(cmd, symbol)
+
+    # Strip remaining \text{...} wrappers, keeping content
+    text = re.sub(r"\\text\{([^}]*)\}", r"\1", text)
+    # Remove stray braces left from grouping (e.g. _{...} → _...)
+    text = re.sub(r"\{([^{}]*)\}", r"\1", text)
+
+    return text
+
+
 def render_briefing_markdown(briefing: DailyBriefing) -> str:
     """Render a DailyBriefing to a markdown string."""
     lines = [
@@ -468,16 +532,16 @@ def render_briefing_markdown(briefing: DailyBriefing) -> str:
         lines += ["# Most Discussed", ""]
         for paper in briefing.most_discussed:
             lines += [
-                f"### {paper.title}",
+                f"### {_strip_latex(paper.title)}",
                 f"*{', '.join(paper.authors)}*",
                 "",
-                f"**Summary:** {paper.plain_english_summary}",
+                f"**Summary:** {_strip_latex(paper.plain_english_summary)}",
                 "",
-                f"**Methods:** {paper.methods}",
+                f"**Methods:** {_strip_latex(paper.methods)}",
                 "",
-                f"**Key contribution:** {paper.key_contribution}",
+                f"**Key contribution:** {_strip_latex(paper.key_contribution)}",
                 "",
-                f"**Why it matters:** {paper.significance}",
+                f"**Why it matters:** {_strip_latex(paper.significance)}",
                 "",
                 f"> [Read paper]({paper.url})" if paper.url else "",
                 "",
@@ -489,14 +553,14 @@ def render_briefing_markdown(briefing: DailyBriefing) -> str:
         lines += ["# Notable Papers", ""]
         for paper in briefing.notable_papers:
             lines += [
-                f"### {paper.title}",
+                f"### {_strip_latex(paper.title)}",
                 f"*{', '.join(paper.authors)}*",
                 "",
-                f"**Summary:** {paper.plain_english_summary}",
+                f"**Summary:** {_strip_latex(paper.plain_english_summary)}",
                 "",
-                f"**Methods:** {paper.methods}",
+                f"**Methods:** {_strip_latex(paper.methods)}",
                 "",
-                f"**Why it matters:** {paper.significance}",
+                f"**Why it matters:** {_strip_latex(paper.significance)}",
                 "",
                 f"> [Read paper]({paper.url})" if paper.url else "",
                 "",
@@ -507,30 +571,30 @@ def render_briefing_markdown(briefing: DailyBriefing) -> str:
     if briefing.web_insights:
         lines += ["# Web & Industry News", ""]
         for insight in briefing.web_insights:
-            lines.append(f"- {insight}")
+            lines.append(f"- {_strip_latex(insight)}")
         lines += ["", "---", ""]
 
-    lines += ["# Emerging Themes", "", briefing.emerging_themes, "", "---", ""]
+    lines += ["# Emerging Themes", "", _strip_latex(briefing.emerging_themes), "", "---", ""]
 
-    if briefing.concept_of_the_day:
-        c = briefing.concept_of_the_day
-        lines += [
-            "# Concept of the Day",
-            f"## {c.name}",
-            "",
-            c.plain_english,
-            "",
-            f"**Example:** {c.example}",
-            "",
-            f"**Why it matters:** {c.why_it_matters}",
-            "",
-            f"**In today's research:** {c.connected_to_today}",
-            "",
-            f"> [Learn more]({c.learn_more_url})" if c.learn_more_url else "",
-            "",
-            "---",
-            "",
-        ]
+    if briefing.concepts_of_the_day:
+        lines += ["# Concepts of the Day", ""]
+        for c in briefing.concepts_of_the_day:
+            lines += [
+                f"## {c.name}",
+                "",
+                _strip_latex(c.plain_english),
+                "",
+                f"**Example:** {_strip_latex(c.example)}",
+                "",
+                f"**Why it matters:** {_strip_latex(c.why_it_matters)}",
+                "",
+                f"**In today's research:** {_strip_latex(c.connected_to_today)}",
+                "",
+                f"> [Learn more]({c.learn_more_url})" if c.learn_more_url else "",
+                "",
+                "---",
+                "",
+            ]
 
     if briefing.errors:
         lines += ["# Errors (non-fatal)", ""]
