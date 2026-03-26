@@ -1,9 +1,12 @@
 """
-Curated list of core data science / ML concepts for the daily briefing.
+Curated concept lists for the daily briefing.
 
-Each run the synthesis LLM picks ONE concept from this list that is most
-relevant to today's research papers. Using a fixed list prevents hallucinated
-or trivially obvious concept choices and ensures coverage across the field.
+CORE_DS_CONCEPTS: advanced/research-oriented concepts — the synthesis LLM picks
+1-3 that are most relevant to today's papers.
+
+FOUNDATIONAL_DS_CONCEPTS: beginner-friendly fundamentals — the synthesis LLM
+picks exactly 2 per run for a standalone educational section, independent of
+today's papers. These rotate to provide broad coverage over time.
 """
 
 CORE_DS_CONCEPTS: list[str] = [
@@ -286,4 +289,66 @@ CORE_DS_CONCEPTS: list[str] = [
     "Outcome Reward Models (ORMs)",
     "Majority Voting and Self-Consistency",
     "Iterative Refinement at Inference",
+]
+
+FOUNDATIONAL_DS_CONCEPTS: list[str] = [
+    # Core Math & Statistics
+    "Mean, Median, Mode, and Variance",
+    "Standard Deviation and Z-Scores",
+    "Probability Basics (events, independence, conditional probability)",
+    "Bayes' Theorem",
+    "Normal Distribution",
+    "Central Limit Theorem",
+    "Hypothesis Testing and p-Values",
+    "Confidence Intervals",
+    "Correlation vs. Causation",
+    "Train / Validation / Test Split",
+    "Cross-Validation",
+    "Bias-Variance Tradeoff",
+    "Overfitting and Underfitting",
+    "Feature Scaling (normalization, standardization)",
+    "Missing Data Imputation",
+
+    # Classical ML Fundamentals
+    "Linear Regression",
+    "Logistic Regression",
+    "Decision Trees",
+    "Random Forests",
+    "Gradient Boosting",
+    "K-Nearest Neighbors",
+    "Naive Bayes Classifier",
+    "K-Means Clustering",
+    "Principal Component Analysis (PCA)",
+    "Confusion Matrix, Precision, Recall, F1",
+    "ROC Curve and AUC",
+    "Loss Functions (MSE, MAE, Cross-Entropy)",
+    "Gradient Descent",
+    "Learning Rate",
+    "Regularization (L1 / L2)",
+
+    # Neural Network Basics
+    "Perceptron and the Neuron Analogy",
+    "Feedforward Neural Networks",
+    "Activation Functions (ReLU, Sigmoid, Tanh)",
+    "Backpropagation",
+    "Batch vs. Stochastic Gradient Descent",
+    "Epochs, Batches, and Iterations",
+    "Dropout",
+    "Batch Normalization",
+    "Convolutional Neural Networks (CNNs)",
+    "Recurrent Neural Networks (RNNs)",
+    "Word Embeddings (Word2Vec, GloVe)",
+    "Tokenization",
+    "Transfer Learning",
+    "Fine-Tuning",
+
+    # Data Fundamentals
+    "Exploratory Data Analysis (EDA)",
+    "Feature Engineering",
+    "One-Hot Encoding",
+    "Label Encoding",
+    "Class Imbalance and Resampling",
+    "Dimensionality Reduction",
+    "Outlier Detection",
+    "Data Augmentation",
 ]

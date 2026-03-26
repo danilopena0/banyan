@@ -1,5 +1,5 @@
 """Pydantic model for the final structured briefing output."""
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 from schemas.paper import PaperSummary
 
@@ -18,6 +18,24 @@ class ConceptExplanation(BaseModel):
     )
     connected_to_today: str = Field(
         description="How this concept appears in today's papers — cite specific equations, objectives, or architectural choices from the research"
+    )
+    learn_more_url: str = Field(
+        default="",
+        description="URL to a beginner-friendly resource for this concept"
+    )
+
+
+class FoundationalConcept(BaseModel):
+    """A beginner-friendly explanation of a core DS/ML concept."""
+    name: str = Field(description="Name of the concept (e.g., 'Linear Regression')")
+    plain_english: str = Field(
+        description="2-3 sentence plain-English explanation for someone new to ML — what it does and when you'd use it"
+    )
+    example: str = Field(
+        description="A concrete, intuitive example or analogy a non-expert could follow"
+    )
+    why_it_matters: str = Field(
+        description="Why every ML practitioner should understand this concept"
     )
     learn_more_url: str = Field(
         default="",
@@ -45,21 +63,12 @@ class DailyBriefing(BaseModel):
             "NEVER use LaTeX delimiters ($, $$) or backslash commands (\\sigma, \\cdot, etc.)."
         )
     )
-    web_insights: list[str] = Field(
-        description="Key findings from web search about current AI developments",
-        default_factory=list
-    )
-
-    @field_validator("web_insights", mode="before")
-    @classmethod
-    def coerce_web_insights(cls, v: Any) -> list[str]:
-        """LLMs sometimes return a plain string instead of a list — wrap it."""
-        if isinstance(v, str):
-            return [s.strip() for s in v.split("\n") if s.strip()]
-        return v
-
     concepts_of_the_day: list[ConceptExplanation] = Field(
         description="1-3 foundational DS/ML concepts drawn from today's papers — more when multiple distinct concepts appear",
+        default_factory=list
+    )
+    foundational_concepts: list[FoundationalConcept] = Field(
+        description="Exactly 2 beginner-friendly foundational DS/ML concepts, independent of today's papers",
         default_factory=list
     )
 

@@ -6,7 +6,7 @@ routing between the LLM and tool execution. Combined with a conditional
 edge, this creates the ReAct loop without manual orchestration code.
 
 Graph flow:
-START → fetch_ai_news → research_agent → [tools loop] → collect_results
+START → research_agent → [tools loop] → collect_results
       → enrich_papers → deduplicate_embed → retrieve_context
       → synthesize → enrich_concept → save → END
 """
@@ -15,7 +15,6 @@ from langgraph.prebuilt import ToolNode
 
 from agent.state import ResearchState
 from agent.nodes import (
-    fetch_ai_news_node,
     research_agent_node,
     should_continue,
     collect_tool_results,
@@ -41,7 +40,6 @@ def build_graph():
 
     # --- Nodes ---
 
-    graph.add_node("fetch_ai_news", fetch_ai_news_node)
     graph.add_node("research_agent", research_agent_node)
     graph.add_node("tools", ToolNode(ALL_TOOLS))
     graph.add_node("collect_results", collect_tool_results)
@@ -54,8 +52,7 @@ def build_graph():
 
     # --- Edges ---
 
-    graph.set_entry_point("fetch_ai_news")
-    graph.add_edge("fetch_ai_news", "research_agent")
+    graph.set_entry_point("research_agent")
 
     graph.add_conditional_edges(
         "research_agent",

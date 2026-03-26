@@ -21,7 +21,7 @@ from agent.prompts import (
     SYNTHESIS_SYSTEM_PROMPT,
     SYNTHESIS_USER_TEMPLATE,
 )
-from agent.concepts import CORE_DS_CONCEPTS
+from agent.concepts import CORE_DS_CONCEPTS, FOUNDATIONAL_DS_CONCEPTS
 from agent.tools import ALL_TOOLS
 from rag.store import embed_and_store, get_seen_ids
 from rag.retriever import retrieve_relevant_context
@@ -41,7 +41,6 @@ _TEMPERATURE = 0.1
 # Enrichment limits
 _ENRICH_MAX_PAPERS = 20
 _ENRICH_TAVILY_RESULTS_PER_PAPER = 3
-_ENRICH_NEWS_RESULTS = 4
 _ENRICH_CONCEPT_RESULTS = 3
 _ENRICH_SNIPPET_CHARS = 200
 
@@ -50,8 +49,6 @@ _RAG_K = 20
 
 # Synthesis token budgets (character limits before sending to LLM)
 _SYNTHESIS_CONTEXT_CHARS = 7000
-_SYNTHESIS_WEB_NEWS_CHARS = 1000
-
 
 def _build_llm(model_id: str, fallback_model_id: str = None):
     """
@@ -116,37 +113,6 @@ def _window_messages(messages: list, keep_recent: int = 6) -> list:
     return truncated
 
 
-def fetch_ai_news_node(state: ResearchState) -> dict:
-    """
-    Fetch curated AI/ML news via Tavily before the ReAct loop.
-
-    Fires targeted queries for model releases, benchmarks, and industry
-    news so the research agent and synthesis have fresh web context.
-    """
-    if not os.getenv("TAVILY_API_KEY"):
-        logger.warning("TAVILY_API_KEY not set — skipping AI news fetch")
-        return {"web_news": []}
-
-    queries = [
-        f"AI machine learning model release announcement {state.date[:7]}",
-        "large language model benchmark results latest",
-        "AI research breakthrough paper publication",
-    ]
-
-    news_items = []
-    for query in queries:
-        response = tavily_search(query, max_results=_ENRICH_NEWS_RESULTS)
-        for r in response.get("results", []):
-            title = r.get("title", "")
-            url = r.get("url", "")
-            snippet = r.get("content", "")[:_ENRICH_SNIPPET_CHARS]
-            if title:
-                news_items.append(f"[{title}]({url}): {snippet}")
-
-    logger.info(f"Fetched {len(news_items)} AI news items via Tavily")
-    return {"web_news": news_items}
-
-
 def enrich_papers_node(state: ResearchState) -> dict:
     """
     Score each paper by web presence using Tavily.
@@ -198,16 +164,21 @@ def enrich_papers_node(state: ResearchState) -> dict:
 def enrich_concept_node(state: ResearchState) -> dict:
     """
     Find a beginner-friendly resource URL for each concept via Tavily.
+    Covers both concepts_of_the_day and foundational_concepts.
     """
-    if not state.briefing or not state.briefing.concepts_of_the_day:
+    if not state.briefing:
         return {}
     if not os.getenv("TAVILY_API_KEY"):
+        return {}
+
+    all_concepts = list(state.briefing.concepts_of_the_day) + list(state.briefing.foundational_concepts)
+    if not all_concepts:
         return {}
 
     preferred_domains = ("distill.pub", "colah.github", "lilianweng", "arxiv", "explained.ai")
     briefing = state.briefing
 
-    for concept in briefing.concepts_of_the_day:
+    for concept in all_concepts:
         if concept.learn_more_url:
             continue  # already set
 
@@ -257,8 +228,8 @@ def research_agent_node(state: ResearchState) -> dict:
             HumanMessage(
                 content=(
                     f"Today is {state.date}. Please research today's most important "
-                    f"AI/ML developments. Use search_hf_papers for broad topic coverage, "
-                    f"search_arxiv for specific topics, and web_search for industry news."
+                    f"AI/ML developments. Use search_hf_papers for broad topic coverage "
+                    f"and search_arxiv for specific topics."
                 )
             ),
         ]
@@ -433,16 +404,15 @@ def synthesize_node(state: ResearchState) -> dict:
     if papers_with_mentions:
         context = "Paper web presence scores:\n" + "\n".join(papers_with_mentions) + "\n\n---\n\n" + context
 
-    web_news = "\n".join(f"- {item}" for item in state.web_news) if state.web_news else "No web news fetched"
-
     concepts_list = "\n".join(f"- {c}" for c in CORE_DS_CONCEPTS)
+    foundational_list = "\n".join(f"- {c}" for c in FOUNDATIONAL_DS_CONCEPTS)
 
     user_prompt = SYNTHESIS_USER_TEMPLATE.format(
         date=state.date,
         context=context[:_SYNTHESIS_CONTEXT_CHARS],
-        web_news=web_news[:_SYNTHESIS_WEB_NEWS_CHARS],
         total_papers=len(state.raw_papers),
         concepts=concepts_list,
+        foundational_concepts=foundational_list,
     )
 
     messages = [
@@ -568,12 +538,6 @@ def render_briefing_markdown(briefing: DailyBriefing) -> str:
                 "",
             ]
 
-    if briefing.web_insights:
-        lines += ["# Web & Industry News", ""]
-        for insight in briefing.web_insights:
-            lines.append(f"- {_strip_latex(insight)}")
-        lines += ["", "---", ""]
-
     lines += ["# Emerging Themes", "", _strip_latex(briefing.emerging_themes), "", "---", ""]
 
     if briefing.concepts_of_the_day:
@@ -589,6 +553,24 @@ def render_briefing_markdown(briefing: DailyBriefing) -> str:
                 f"**Why it matters:** {_strip_latex(c.why_it_matters)}",
                 "",
                 f"**In today's research:** {_strip_latex(c.connected_to_today)}",
+                "",
+                f"> [Learn more]({c.learn_more_url})" if c.learn_more_url else "",
+                "",
+                "---",
+                "",
+            ]
+
+    if briefing.foundational_concepts:
+        lines += ["# Foundational Concepts", ""]
+        for c in briefing.foundational_concepts:
+            lines += [
+                f"## {c.name}",
+                "",
+                _strip_latex(c.plain_english),
+                "",
+                f"**Example:** {_strip_latex(c.example)}",
+                "",
+                f"**Why it matters:** {_strip_latex(c.why_it_matters)}",
                 "",
                 f"> [Learn more]({c.learn_more_url})" if c.learn_more_url else "",
                 "",

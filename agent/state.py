@@ -17,9 +17,6 @@ class ResearchState(BaseModel):
     # ReAct tool-calling loop messages (list of LangChain message objects)
     messages: list[Any] = Field(default_factory=list)
 
-    # AI news fetched before the ReAct loop via curated Tavily queries
-    web_news: list[str] = Field(default_factory=list)
-
     # Raw data collected by tools
     raw_papers: list[dict] = Field(default_factory=list)
 
