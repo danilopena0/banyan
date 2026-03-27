@@ -26,20 +26,34 @@ class ConceptExplanation(BaseModel):
 
 
 class FoundationalConcept(BaseModel):
-    """A beginner-friendly explanation of a core DS/ML concept."""
-    name: str = Field(description="Name of the concept (e.g., 'Linear Regression')")
+    """A mathematically rigorous explanation of a core DS/ML concept for MS-level practitioners."""
+    name: str = Field(description="Name of the concept (e.g., 'Bias-Variance Decomposition')")
     plain_english: str = Field(
-        description="2-3 sentence plain-English explanation for someone new to ML — what it does and when you'd use it"
+        description=(
+            "Formal mathematical definition and derivation targeting an MS-level reader with 5+ years of experience. "
+            "State the concept precisely using notation (e.g. E[X], sigma^2, argmin). "
+            "Include the key theorem, decomposition, or identity and explain the intuition behind it. "
+            "LaTeX math is encouraged: use $...$ for inline and $$...$$ for display equations."
+        )
     )
     example: str = Field(
-        description="A concrete, intuitive example or analogy a non-expert could follow"
+        description=(
+            "A worked example or non-trivial application that reveals the mathematical structure — "
+            "e.g. a derivation step, a connection to a loss function, or a counterexample to a common misconception. "
+            "Suitable for someone who already knows calculus, linear algebra, and probability theory. "
+            "LaTeX math is encouraged."
+        )
     )
     why_it_matters: str = Field(
-        description="Why every ML practitioner should understand this concept"
+        description=(
+            "Why this concept is load-bearing in modern ML — include key theoretical properties "
+            "(convergence guarantees, approximation tradeoffs, complexity bounds) and connect to "
+            "practical consequences in model design, training, or evaluation. LaTeX math is encouraged."
+        )
     )
     learn_more_url: str = Field(
         default="",
-        description="URL to a beginner-friendly resource for this concept"
+        description="URL to a resource for this concept"
     )
 
 

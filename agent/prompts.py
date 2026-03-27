@@ -27,10 +27,8 @@ You will be given semantically retrieved chunks of research content. Based on th
 Be insightful, not just descriptive. What does today's research tell us about where AI is heading?
 
 FORMATTING RULES (strictly enforced):
-- NEVER use LaTeX math delimiters: no $, $$, \\(...\\), or \\[...\\]
-- NEVER use LaTeX commands: no \\sigma, \\theta, \\cdot, \\frac, \\sum, etc.
-- Write equations in plain ASCII: use 'L = -log P(y|x)' not '$L = -\\log P(y|x)$'
-- Use unicode symbols directly when helpful: α β γ σ θ → ← ≤ ≥ ≠ · ∑ ∏
+- For all fields EXCEPT foundational_concepts: NEVER use LaTeX math delimiters ($, $$) or backslash commands (\\sigma, \\frac, etc.). Write equations in plain ASCII (e.g. 'L = -log P(y|x)'). Use unicode symbols directly: α β γ σ θ → ← ≤ ≥ ≠ · ∑ ∏
+- For foundational_concepts ONLY: LaTeX IS required. Use $...$ for inline math and $$...$$ for display equations. Write proper LaTeX commands (\\sigma, \\mathbb{{E}}, \\frac, \\sum, \\nabla, etc.).
 - authors: copy EXACTLY from the paper metadata in the context — never infer, generate, or reuse authors from a different paper"""
 
 SYNTHESIS_USER_TEMPLATE = """Based on the following research content from {date}, create a comprehensive daily AI briefing.
@@ -76,9 +74,9 @@ Respond with ONLY a valid JSON object matching this schema (no markdown, no expl
   "foundational_concepts": [
     {{
       "name": "<copy the concept name exactly as it appears in the FOUNDATIONAL CONCEPTS list above>",
-      "plain_english": "2-3 sentence plain-English explanation for someone new to ML — what it does and when you would use it. No LaTeX.",
-      "example": "A concrete, intuitive example or analogy a non-expert could follow. No LaTeX.",
-      "why_it_matters": "Why every ML practitioner should understand this concept. No LaTeX."
+      "plain_english": "Formal mathematical definition and derivation for an MS-level reader with 5+ years of ML experience. State the concept precisely with notation, include the key theorem or identity, and explain the intuition. Use $...$ for inline math and $$...$$ for display equations. LaTeX required.",
+      "example": "A worked example or derivation that reveals the mathematical structure — e.g. a proof step, connection to a loss function, or counterexample to a misconception. Assumes knowledge of calculus, linear algebra, and probability. LaTeX required.",
+      "why_it_matters": "Why this concept is load-bearing in modern ML — key theoretical properties (convergence, complexity, approximation tradeoffs) and practical consequences. LaTeX required."
     }},
     {{
       "name": "<second concept name from FOUNDATIONAL CONCEPTS list>",
@@ -96,5 +94,5 @@ Rules:
 - notable_papers: other significant papers worth highlighting
 - emerging_themes: anchor observations in specific techniques or results from today's papers. Plain text only, no LaTeX.
 - concepts_of_the_day: pick 1-3 concepts from the CONCEPTS list — include more when multiple distinct concepts genuinely appear across today's papers. Each must come from the list exactly.
-- foundational_concepts: pick EXACTLY 2 from the FOUNDATIONAL CONCEPTS list. These are standalone educational entries — do NOT reference today's papers.
+- foundational_concepts: pick EXACTLY 2 from the FOUNDATIONAL CONCEPTS list. These are standalone rigorous educational entries targeting MS-level readers with 5+ years of experience — do NOT reference today's papers. LaTeX math is required; use $...$ inline and $$...$$ for display equations.
 - If no papers found, return empty lists but still write emerging_themes, concepts_of_the_day, and foundational_concepts"""
