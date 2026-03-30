@@ -2,7 +2,6 @@
 langgraph>=0.2.0
 langchain>=0.3.0
 langchain-core>=0.3.0
-langchain-community>=0.3.0
 langchain-chroma>=0.1.0
 
 # Groq (primary LLM — free tier)
@@ -10,7 +9,6 @@ langchain-groq>=0.2.0
 
 # HuggingFace (embeddings only — local CPU, no API calls)
 langchain-huggingface>=0.1.0
-huggingface-hub>=0.24.0
 sentence-transformers>=3.0.0
 
 # Data sources

@@ -9,7 +9,7 @@ import pytest
 
 from schemas.briefing import DailyBriefing, ConceptExplanation
 from schemas.paper import PaperSummary
-from agent.nodes import render_briefing_markdown
+from agent.renderer import render_briefing_markdown
 
 
 # ---------------------------------------------------------------------------
@@ -171,40 +171,10 @@ class TestRenderBriefingMarkdownNotablePapers:
 
 
 # ---------------------------------------------------------------------------
-# web_insights
+# concepts_of_the_day
 # ---------------------------------------------------------------------------
 
-class TestRenderBriefingMarkdownWebInsights:
-    def test_render_includes_web_news_heading(self):
-        briefing = _minimal_briefing(web_insights=["GPT-5 was announced."])
-        output = render_briefing_markdown(briefing)
-        assert "# Web & Industry News" in output
-
-    def test_render_each_insight_as_bullet(self):
-        briefing = _minimal_briefing(
-            web_insights=["First insight.", "Second insight.", "Third insight."]
-        )
-        output = render_briefing_markdown(briefing)
-        assert "- First insight." in output
-        assert "- Second insight." in output
-        assert "- Third insight." in output
-
-    def test_render_no_web_news_section_when_empty(self):
-        briefing = _minimal_briefing(web_insights=[])
-        output = render_briefing_markdown(briefing)
-        assert "# Web & Industry News" not in output
-
-    def test_render_single_insight_appears(self):
-        briefing = _minimal_briefing(web_insights=["One important development."])
-        output = render_briefing_markdown(briefing)
-        assert "One important development." in output
-
-
-# ---------------------------------------------------------------------------
-# concept_of_the_day
-# ---------------------------------------------------------------------------
-
-class TestRenderBriefingMarkdownConceptOfTheDay:
+class TestRenderBriefingMarkdownConceptsOfTheDay:
     def _concept(self, **overrides):
         defaults = dict(
             name="Gradient Descent",
@@ -217,64 +187,75 @@ class TestRenderBriefingMarkdownConceptOfTheDay:
         defaults.update(overrides)
         return ConceptExplanation(**defaults)
 
-    def test_render_includes_concept_heading(self):
-        briefing = _minimal_briefing(concept_of_the_day=self._concept())
+    def test_render_includes_concepts_heading(self):
+        briefing = _minimal_briefing(concepts_of_the_day=[self._concept()])
         output = render_briefing_markdown(briefing)
-        assert "# Concept of the Day" in output
+        assert "# Concepts of the Day" in output
 
     def test_render_includes_concept_name(self):
-        briefing = _minimal_briefing(concept_of_the_day=self._concept(name="KL Divergence"))
+        briefing = _minimal_briefing(concepts_of_the_day=[self._concept(name="KL Divergence")])
         output = render_briefing_markdown(briefing)
         assert "KL Divergence" in output
 
     def test_render_includes_concept_plain_english(self):
         briefing = _minimal_briefing(
-            concept_of_the_day=self._concept(
+            concepts_of_the_day=[self._concept(
                 plain_english="Measures how one probability distribution differs from another."
-            )
+            )]
         )
         output = render_briefing_markdown(briefing)
         assert "Measures how one probability distribution differs from another." in output
 
     def test_render_includes_concept_example(self):
         briefing = _minimal_briefing(
-            concept_of_the_day=self._concept(example="Like comparing two histograms.")
+            concepts_of_the_day=[self._concept(example="Like comparing two histograms.")]
         )
         output = render_briefing_markdown(briefing)
         assert "Like comparing two histograms." in output
 
     def test_render_includes_concept_why_it_matters(self):
         briefing = _minimal_briefing(
-            concept_of_the_day=self._concept(why_it_matters="Used in VAEs and RL policy optimisation.")
+            concepts_of_the_day=[self._concept(why_it_matters="Used in VAEs and RL policy optimisation.")]
         )
         output = render_briefing_markdown(briefing)
         assert "Used in VAEs and RL policy optimisation." in output
 
     def test_render_includes_concept_connected_to_today(self):
         briefing = _minimal_briefing(
-            concept_of_the_day=self._concept(connected_to_today="Paper A uses KL in its loss.")
+            concepts_of_the_day=[self._concept(connected_to_today="Paper A uses KL in its loss.")]
         )
         output = render_briefing_markdown(briefing)
         assert "Paper A uses KL in its loss." in output
 
     def test_render_includes_learn_more_url_as_link(self):
         briefing = _minimal_briefing(
-            concept_of_the_day=self._concept(learn_more_url="https://distill.pub/2017/momentum/")
+            concepts_of_the_day=[self._concept(learn_more_url="https://distill.pub/2017/momentum/")]
         )
         output = render_briefing_markdown(briefing)
         assert "https://distill.pub/2017/momentum/" in output
 
     def test_render_skips_learn_more_link_when_url_empty(self):
         briefing = _minimal_briefing(
-            concept_of_the_day=self._concept(learn_more_url="")
+            concepts_of_the_day=[self._concept(learn_more_url="")]
         )
         output = render_briefing_markdown(briefing)
         assert "[Learn more]()" not in output
 
-    def test_render_no_concept_section_when_none(self):
-        briefing = _minimal_briefing(concept_of_the_day=None)
+    def test_render_multiple_concepts_all_appear(self):
+        briefing = _minimal_briefing(
+            concepts_of_the_day=[
+                self._concept(name="Concept Alpha"),
+                self._concept(name="Concept Beta"),
+            ]
+        )
         output = render_briefing_markdown(briefing)
-        assert "# Concept of the Day" not in output
+        assert "Concept Alpha" in output
+        assert "Concept Beta" in output
+
+    def test_render_no_concepts_section_when_empty(self):
+        briefing = _minimal_briefing(concepts_of_the_day=[])
+        output = render_briefing_markdown(briefing)
+        assert "# Concepts of the Day" not in output
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ from typing import Optional
 
 from langchain_core.documents import Document
 
-from rag.store import _get_vector_store
+from rag.store import get_vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -36,18 +36,13 @@ def retrieve_relevant_context(
         List of Document objects, sorted by semantic relevance
     """
     try:
-        vector_store = _get_vector_store()
+        vector_store = get_vector_store()
 
-        search_kwargs: dict = {"k": k}
+        kwargs: dict = {"k": k}
         if filter_metadata:
-            search_kwargs["filter"] = filter_metadata
+            kwargs["filter"] = filter_metadata
 
-        retriever = vector_store.as_retriever(
-            search_type="similarity",
-            search_kwargs=search_kwargs,
-        )
-
-        docs = retriever.invoke(query)
+        docs = vector_store.similarity_search(query, **kwargs)
         logger.info(f"Retrieved {len(docs)} chunks for query: '{query[:60]}...'")
         return docs
 

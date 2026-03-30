@@ -7,6 +7,7 @@ docstrings become the tool descriptions the LLM uses to decide when
 to call each tool.
 """
 import logging
+import os
 
 import arxiv
 import requests
@@ -130,7 +131,6 @@ def web_search(query: str) -> str:
     Returns:
         String with search results and snippets
     """
-    import os
     if not os.getenv("TAVILY_API_KEY"):
         return "Web search unavailable: TAVILY_API_KEY not set"
 

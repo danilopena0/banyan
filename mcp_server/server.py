@@ -19,11 +19,10 @@ from datetime import datetime
 from mcp.server import Server
 from mcp import types
 
+from agent.config import OUTPUT_DIR
 from rag.retriever import retrieve_across_dates
 
 logger = logging.getLogger(__name__)
-
-OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 
 app = Server("ai-research-briefing")
 

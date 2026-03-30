@@ -26,7 +26,7 @@ def _get_chroma_client():
     return chromadb.PersistentClient(path=_CHROMA_PERSIST_DIR)
 
 
-def _get_vector_store() -> Chroma:
+def get_vector_store() -> Chroma:
     """Get LangChain Chroma vector store wrapper."""
     return Chroma(
         collection_name=COLLECTION_NAME,
@@ -99,7 +99,7 @@ def embed_and_store(papers: list[dict], date: str) -> list[str]:
         return []
 
     try:
-        vector_store = _get_vector_store()
+        vector_store = get_vector_store()
         vector_store.add_documents(documents=documents, ids=ids)
         logger.info(f"Embedded and stored {len(documents)} new documents")
         return ids

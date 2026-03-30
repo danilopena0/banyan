@@ -65,8 +65,7 @@ def full_briefing(sample_paper_summary, sample_concept) -> DailyBriefing:
         most_discussed=[sample_paper_summary],
         notable_papers=[sample_paper_summary],
         emerging_themes="Transformers continue to dominate. Diffusion models are rising.",
-        web_insights=["OpenAI released GPT-5.", "Google announced Gemini Ultra 2."],
-        concept_of_the_day=sample_concept,
+        concepts_of_the_day=[sample_concept],
         total_papers_analyzed=42,
         errors=["arXiv rate limit hit for query 'diffusion'"],
     )

@@ -12,6 +12,9 @@ from tavily import TavilyClient
 
 logger = logging.getLogger(__name__)
 
+_api_key = os.getenv("TAVILY_API_KEY")
+_client: TavilyClient | None = TavilyClient(api_key=_api_key) if _api_key else None
+
 
 def tavily_search(query: str, max_results: int = 5, include_answer: bool = False) -> dict:
     """
@@ -25,12 +28,10 @@ def tavily_search(query: str, max_results: int = 5, include_answer: bool = False
     Returns:
         Tavily response dict with 'results' key, or {} if key is missing or call fails.
     """
-    api_key = os.getenv("TAVILY_API_KEY")
-    if not api_key:
+    if not _client:
         return {}
     try:
-        client = TavilyClient(api_key=api_key)
-        return client.search(
+        return _client.search(
             query=query,
             search_depth="basic",
             max_results=max_results,

@@ -266,7 +266,7 @@ class TestWebSearch:
         result = web_search.func("OpenAI news")
 
         # Assert
-        assert "unavailable" in result.lower() or "TAVILY_API_KEY" in result
+        assert result == "Web search unavailable: TAVILY_API_KEY not set"
 
     def test_web_search_with_key_and_answer_returns_formatted_string(self, monkeypatch):
         # Arrange
@@ -308,8 +308,8 @@ class TestWebSearch:
             # Act
             result = web_search.func("AI news")
 
-        # Assert — results are formatted as a list item
-        assert "- [Some AI News]" in result or "Some AI News" in result
+        # Assert — results are formatted as markdown bullet list items
+        assert "- [Some AI News](https://example.com/ai-news):" in result
 
     def test_web_search_with_key_and_empty_response_returns_failure_message(
         self, monkeypatch
@@ -322,8 +322,7 @@ class TestWebSearch:
             result = web_search.func("some query")
 
         # Assert — communicates failure gracefully
-        assert isinstance(result, str)
-        assert "failed" in result.lower() or "not set" in result.lower()
+        assert result == "Web search failed or TAVILY_API_KEY not set"
 
     def test_web_search_truncates_content_to_300_chars(self, monkeypatch):
         # Arrange

@@ -1,7 +1,7 @@
 """
 Tests for rag/store.py.
 
-We mock _get_vector_store and _get_chroma_client at the module level to
+We mock get_vector_store and _get_chroma_client at the module level to
 avoid real ChromaDB disk I/O and avoid loading the embedding model.
 These tests verify the logic inside embed_and_store and get_seen_ids
 without relying on any infrastructure.
@@ -32,7 +32,7 @@ class TestEmbedAndStore:
 
     def test_embed_and_store_empty_papers_returns_empty_list(self):
         # Arrange / Act — no papers, no vector store interaction needed
-        with patch("rag.store._get_vector_store") as mock_get_vs:
+        with patch("rag.store.get_vector_store") as mock_get_vs:
             result = embed_and_store(papers=[], date="2024-01-01")
 
         # Assert
@@ -44,7 +44,7 @@ class TestEmbedAndStore:
         paper = self._make_paper("001")
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             result = embed_and_store(papers=[paper], date="2024-01-01")
 
@@ -56,7 +56,7 @@ class TestEmbedAndStore:
         paper = self._make_paper("001")
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             result = embed_and_store(papers=[paper], date="2024-01-01")
 
@@ -64,13 +64,14 @@ class TestEmbedAndStore:
         assert isinstance(result, list)
         assert len(result) == 1
         assert all(isinstance(id_, str) for id_ in result)
+        assert result[0] == "arxiv_2401.001v1"
 
     def test_embed_and_store_id_derived_from_paper_id(self):
         # Arrange — paper id: .../2401.00001v1 → doc id: arxiv_2401.00001v1
         paper = self._make_paper("00001")
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             result = embed_and_store(papers=[paper], date="2024-01-01")
 
@@ -83,7 +84,7 @@ class TestEmbedAndStore:
         paper["title"] = "Unique Title For Testing"
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             embed_and_store(papers=[paper], date="2024-01-01")
 
@@ -98,7 +99,7 @@ class TestEmbedAndStore:
         paper["abstract"] = "This is a distinctive abstract phrase."
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             embed_and_store(papers=[paper], date="2024-01-01")
 
@@ -113,7 +114,7 @@ class TestEmbedAndStore:
         paper["authors"] = ["Dr. Unique Author"]
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             embed_and_store(papers=[paper], date="2024-01-01")
 
@@ -127,7 +128,7 @@ class TestEmbedAndStore:
         paper = self._make_paper("001")
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             embed_and_store(papers=[paper], date="2024-01-15")
 
@@ -148,7 +149,7 @@ class TestEmbedAndStore:
         paper["categories"] = ["cs.LG", "cs.AI", "stat.ML"]
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             embed_and_store(papers=[paper], date="2024-01-01")
 
         call_kwargs = mock_vs.add_documents.call_args
@@ -160,19 +161,20 @@ class TestEmbedAndStore:
         papers = [self._make_paper(f"00{i}") for i in range(1, 4)]
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             result = embed_and_store(papers=papers, date="2024-01-01")
 
         # Assert
         assert len(result) == 3
+        assert len(set(result)) == 3
 
     def test_embed_and_store_passes_ids_to_add_documents(self):
         # Arrange
         papers = [self._make_paper("111"), self._make_paper("222")]
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act
             result = embed_and_store(papers=papers, date="2024-01-01")
 
@@ -187,7 +189,7 @@ class TestEmbedAndStore:
         mock_vs = MagicMock()
         mock_vs.add_documents.side_effect = Exception("ChromaDB connection failed")
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act — should not raise
             result = embed_and_store(papers=[paper], date="2024-01-01")
 
@@ -205,7 +207,7 @@ class TestEmbedAndStore:
         }
         mock_vs = MagicMock()
 
-        with patch("rag.store._get_vector_store", return_value=mock_vs):
+        with patch("rag.store.get_vector_store", return_value=mock_vs):
             # Act — must not raise KeyError
             result = embed_and_store(papers=[paper], date="2024-01-01")
 

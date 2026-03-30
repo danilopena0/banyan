@@ -28,7 +28,7 @@ def main():
     logger.info("=" * 60)
 
     # Validate required env vars
-    required = ["HUGGINGFACEHUB_API_TOKEN"]
+    required = ["GROQ_API_KEY"]
     missing = [k for k in required if not os.getenv(k)]
     if missing:
         logger.error(f"Missing required environment variables: {missing}")

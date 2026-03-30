@@ -235,80 +235,58 @@ class TestConceptExplanation:
 
 
 # ---------------------------------------------------------------------------
-# DailyBriefing — coerce_web_insights validator
+# DailyBriefing — coerce_concepts validator
 # ---------------------------------------------------------------------------
 
-class TestDailyBriefingCoerceWebInsights:
-    def _make_briefing(self, web_insights):
-        return DailyBriefing(
+class TestDailyBriefingCoerceConcepts:
+    def test_coerce_concepts_dict_wraps_in_list(self, sample_concept):
+        # Arrange — LLMs sometimes return a single object instead of a list
+        raw = sample_concept.model_dump()
+
+        # Act
+        briefing = DailyBriefing(
             date="2024-01-01",
             emerging_themes="Some themes.",
-            web_insights=web_insights,
+            concepts_of_the_day=raw,
         )
 
-    def test_coerce_web_insights_string_splits_on_newlines(self):
-        # Arrange
-        raw = "First insight\nSecond insight\nThird insight"
+        # Assert
+        assert isinstance(briefing.concepts_of_the_day, list)
+        assert len(briefing.concepts_of_the_day) == 1
+        assert briefing.concepts_of_the_day[0].name == sample_concept.name
 
+    def test_coerce_concepts_none_returns_empty_list(self):
         # Act
-        briefing = self._make_briefing(raw)
+        briefing = DailyBriefing(
+            date="2024-01-01",
+            emerging_themes="Some themes.",
+            concepts_of_the_day=None,
+        )
 
         # Assert
-        assert briefing.web_insights == ["First insight", "Second insight", "Third insight"]
+        assert briefing.concepts_of_the_day == []
 
-    def test_coerce_web_insights_empty_string_returns_empty_list(self):
+    def test_coerce_concepts_list_passes_through_unchanged(self, sample_concept):
         # Act
-        briefing = self._make_briefing("")
+        briefing = DailyBriefing(
+            date="2024-01-01",
+            emerging_themes="Some themes.",
+            concepts_of_the_day=[sample_concept],
+        )
 
         # Assert
-        assert briefing.web_insights == []
+        assert len(briefing.concepts_of_the_day) == 1
 
-    def test_coerce_web_insights_string_strips_whitespace_from_lines(self):
-        # Arrange
-        raw = "  First insight  \n  Second insight  "
-
+    def test_coerce_concepts_empty_list_passes_through(self):
         # Act
-        briefing = self._make_briefing(raw)
+        briefing = DailyBriefing(
+            date="2024-01-01",
+            emerging_themes="Some themes.",
+            concepts_of_the_day=[],
+        )
 
         # Assert
-        assert briefing.web_insights == ["First insight", "Second insight"]
-
-    def test_coerce_web_insights_string_ignores_blank_lines(self):
-        # Arrange — blank lines between real content
-        raw = "First insight\n\n\nSecond insight\n"
-
-        # Act
-        briefing = self._make_briefing(raw)
-
-        # Assert — blank lines filtered out
-        assert briefing.web_insights == ["First insight", "Second insight"]
-
-    def test_coerce_web_insights_list_passes_through_unchanged(self):
-        # Arrange
-        items = ["Insight A", "Insight B", "Insight C"]
-
-        # Act
-        briefing = self._make_briefing(items)
-
-        # Assert
-        assert briefing.web_insights == ["Insight A", "Insight B", "Insight C"]
-
-    def test_coerce_web_insights_empty_list_passes_through(self):
-        # Act
-        briefing = self._make_briefing([])
-
-        # Assert
-        assert briefing.web_insights == []
-
-    def test_coerce_web_insights_single_line_string_returns_single_item_list(self):
-        # Arrange
-        raw = "Only one insight"
-
-        # Act
-        briefing = self._make_briefing(raw)
-
-        # Assert
-        assert briefing.web_insights == ["Only one insight"]
+        assert briefing.concepts_of_the_day == []
 
 
 # ---------------------------------------------------------------------------
@@ -335,13 +313,13 @@ class TestDailyBriefingDefaults:
         briefing = DailyBriefing(date="2024-01-01", emerging_themes="Themes.")
         assert briefing.notable_papers == []
 
-    def test_daily_briefing_web_insights_defaults_to_empty_list(self):
+    def test_daily_briefing_concepts_of_the_day_defaults_to_empty_list(self):
         briefing = DailyBriefing(date="2024-01-01", emerging_themes="Themes.")
-        assert briefing.web_insights == []
+        assert briefing.concepts_of_the_day == []
 
-    def test_daily_briefing_concept_of_the_day_defaults_to_none(self):
+    def test_daily_briefing_foundational_concepts_defaults_to_empty_list(self):
         briefing = DailyBriefing(date="2024-01-01", emerging_themes="Themes.")
-        assert briefing.concept_of_the_day is None
+        assert briefing.foundational_concepts == []
 
     def test_daily_briefing_total_papers_analyzed_defaults_to_zero(self):
         briefing = DailyBriefing(date="2024-01-01", emerging_themes="Themes.")
@@ -375,17 +353,17 @@ class TestDailyBriefingDefaults:
         assert len(briefing.most_discussed) == 1
         assert briefing.most_discussed[0].title == "Attention Is All You Need Again"
 
-    def test_daily_briefing_accepts_concept_of_the_day(self, sample_concept):
+    def test_daily_briefing_accepts_concepts_of_the_day(self, sample_concept):
         # Arrange / Act
         briefing = DailyBriefing(
             date="2024-01-01",
             emerging_themes="Themes.",
-            concept_of_the_day=sample_concept,
+            concepts_of_the_day=[sample_concept],
         )
 
         # Assert
-        assert briefing.concept_of_the_day is not None
-        assert briefing.concept_of_the_day.name == "Attention Mechanism"
+        assert len(briefing.concepts_of_the_day) == 1
+        assert briefing.concepts_of_the_day[0].name == "Attention Mechanism"
 
     def test_daily_briefing_model_validate_round_trips(self, full_briefing):
         # Arrange — serialise to dict then re-validate
@@ -398,4 +376,4 @@ class TestDailyBriefingDefaults:
         assert restored.date == full_briefing.date
         assert restored.total_papers_analyzed == full_briefing.total_papers_analyzed
         assert len(restored.most_discussed) == len(full_briefing.most_discussed)
-        assert restored.concept_of_the_day.name == full_briefing.concept_of_the_day.name
+        assert len(restored.concepts_of_the_day) == len(full_briefing.concepts_of_the_day)
