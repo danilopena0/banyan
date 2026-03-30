@@ -7,9 +7,9 @@ without coupling to exact whitespace or line positions.
 """
 import pytest
 
-from schemas.briefing import DailyBriefing, ConceptExplanation
+from schemas.briefing import DailyBriefing, ConceptExplanation, FoundationalConcept
 from schemas.paper import PaperSummary
-from agent.renderer import render_briefing_markdown
+from agent.renderer import render_briefing_markdown, _strip_latex, _render_paper_lines, _render_concept_lines
 
 
 # ---------------------------------------------------------------------------
@@ -316,3 +316,141 @@ class TestRenderBriefingMarkdownMinimal:
         # Assert — core sections always present
         assert "# Daily AI Research Briefing" in output
         assert "# Emerging Themes" in output
+
+
+# ---------------------------------------------------------------------------
+# _strip_latex
+# ---------------------------------------------------------------------------
+
+class TestStripLatex:
+    def test_plain_text_unchanged(self):
+        assert _strip_latex("Hello world") == "Hello world"
+
+    def test_inline_math_delimiters_stripped(self):
+        assert _strip_latex("$x^2$") == "x^2"
+
+    def test_display_math_delimiters_stripped(self):
+        assert _strip_latex("$$x^2$$") == "x^2"
+
+    def test_paren_delimiters_stripped(self):
+        assert _strip_latex("\\\\(x\\\\)") == "x"
+
+    def test_sigma_replaced_with_unicode(self):
+        assert _strip_latex("\\sigma") == "σ"
+
+    def test_nabla_replaced_with_unicode(self):
+        assert _strip_latex("\\nabla") == "∇"
+
+    def test_multiple_symbols_in_one_string(self):
+        result = _strip_latex("\\alpha and \\beta")
+        assert "α" in result
+        assert "β" in result
+
+    def test_text_wrapper_stripped(self):
+        assert _strip_latex("\\text{foo}") == "foo"
+
+    def test_non_string_returned_as_is(self):
+        assert _strip_latex(42) == 42
+
+    def test_none_returned_as_is(self):
+        assert _strip_latex(None) is None
+
+
+# ---------------------------------------------------------------------------
+# _render_paper_lines
+# ---------------------------------------------------------------------------
+
+class TestRenderPaperLines:
+    def _paper(self, **overrides):
+        defaults = dict(
+            title="Test Paper",
+            authors=["Author A"],
+            plain_english_summary="A short summary.",
+            methods="Transformer attention.",
+            significance="Advances SOTA.",
+            key_contribution="Novel encoding.",
+            url="https://arxiv.org/abs/2401.00001",
+        )
+        defaults.update(overrides)
+        return PaperSummary(**defaults)
+
+    def test_includes_key_contribution_when_flag_true(self):
+        lines = _render_paper_lines(self._paper(), include_key_contribution=True)
+        combined = "\n".join(lines)
+        assert "Key contribution:" in combined
+        assert "Novel encoding." in combined
+
+    def test_omits_key_contribution_when_flag_false(self):
+        lines = _render_paper_lines(self._paper(), include_key_contribution=False)
+        combined = "\n".join(lines)
+        assert "Key contribution:" not in combined
+
+    def test_url_appears_as_link(self):
+        lines = _render_paper_lines(self._paper(url="https://arxiv.org/abs/1234"))
+        combined = "\n".join(lines)
+        assert "https://arxiv.org/abs/1234" in combined
+
+    def test_empty_url_produces_no_link(self):
+        lines = _render_paper_lines(self._paper(url=""))
+        combined = "\n".join(lines)
+        assert "[Read paper]" not in combined
+
+    def test_returns_list_of_strings(self):
+        lines = _render_paper_lines(self._paper())
+        assert isinstance(lines, list)
+        assert all(isinstance(line, str) for line in lines)
+
+
+# ---------------------------------------------------------------------------
+# _render_concept_lines
+# ---------------------------------------------------------------------------
+
+class TestRenderConceptLines:
+    def _concept(self, **overrides):
+        defaults = dict(
+            name="Attention",
+            plain_english="Focuses on relevant tokens.",
+            example="Like a spotlight.",
+            why_it_matters="Enables parallelization.",
+            connected_to_today="Used in every paper today.",
+            learn_more_url="https://distill.pub/",
+        )
+        defaults.update(overrides)
+        return ConceptExplanation(**defaults)
+
+    def _foundational_concept(self, **overrides):
+        defaults = dict(
+            name="Bias-Variance",
+            plain_english="The fundamental tradeoff.",
+            example="Fitting noise vs. signal.",
+            why_it_matters="Guides model selection.",
+            learn_more_url="",
+        )
+        defaults.update(overrides)
+        return FoundationalConcept(**defaults)
+
+    def test_includes_connected_to_today_when_flag_true(self):
+        lines = _render_concept_lines(self._concept(), include_connected_to_today=True)
+        combined = "\n".join(lines)
+        assert "In today's research:" in combined
+        assert "Used in every paper today." in combined
+
+    def test_omits_connected_to_today_when_flag_false(self):
+        lines = _render_concept_lines(self._foundational_concept(), include_connected_to_today=False)
+        combined = "\n".join(lines)
+        assert "In today's research:" not in combined
+
+    def test_learn_more_url_appears_when_non_empty(self):
+        lines = _render_concept_lines(self._concept(learn_more_url="https://distill.pub/"), include_connected_to_today=True)
+        combined = "\n".join(lines)
+        assert "https://distill.pub/" in combined
+
+    def test_empty_url_produces_no_learn_more_link(self):
+        lines = _render_concept_lines(self._concept(learn_more_url=""), include_connected_to_today=True)
+        combined = "\n".join(lines)
+        assert "[Learn more]" not in combined
+
+    def test_returns_list_of_strings(self):
+        lines = _render_concept_lines(self._concept(), include_connected_to_today=True)
+        assert isinstance(lines, list)
+        assert all(isinstance(line, str) for line in lines)
