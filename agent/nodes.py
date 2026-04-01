@@ -46,6 +46,9 @@ _ENRICH_SNIPPET_CHARS = 200
 # RAG retrieval
 _RAG_K = 20
 
+# ReAct loop: max tool-call rounds before forcing exit to processing pipeline
+_MAX_TOOL_ROUNDS = 8
+
 # Synthesis token budgets (character limits before sending to LLM)
 _SYNTHESIS_CONTEXT_CHARS = 7000
 
@@ -212,9 +215,7 @@ def research_agent_node(state: ResearchState) -> dict:
     """
     try:
         llm = _build_llm(_PRIMARY_MODEL, _FALLBACK_MODEL)
-        # tool_choice="auto" explicitly tells Groq to use JSON function-call format,
-        # preventing the model from falling back to <function=...> XML-style generation.
-        llm_with_tools = llm.bind_tools(ALL_TOOLS, tool_choice="auto")
+        llm_with_tools = llm.bind_tools(ALL_TOOLS)
     except Exception as e:
         logger.error(f"Failed to build LLM: {e}")
         return {"errors": state.errors + [f"LLM initialization failed: {e}"]}
@@ -241,6 +242,21 @@ def research_agent_node(state: ResearchState) -> dict:
         response = llm_with_tools.invoke(windowed)
         return {"messages": messages + [response]}
     except Exception as e:
+        # Groq returns 400/tool_use_failed when the model generates malformed
+        # tool calls (e.g. old Llama <function=...> format). Retry with fallback.
+        if "tool_use_failed" in str(e) and _FALLBACK_MODEL != _PRIMARY_MODEL:
+            logger.warning(f"tool_use_failed with {_PRIMARY_MODEL}, retrying with {_FALLBACK_MODEL}")
+            try:
+                fallback_llm = _build_llm(_FALLBACK_MODEL)
+                fallback_with_tools = fallback_llm.bind_tools(ALL_TOOLS, tool_choice="auto")
+                response = fallback_with_tools.invoke(windowed)
+                return {"messages": messages + [response]}
+            except Exception as e2:
+                logger.error(f"Fallback model also failed: {e2}")
+                return {
+                    "messages": messages,
+                    "errors": state.errors + [f"Research LLM call failed: {e2}"],
+                }
         logger.error(f"LLM invocation failed: {e}")
         return {
             "messages": messages,
@@ -253,12 +269,16 @@ def should_continue(state: ResearchState) -> str:
     Router: decides whether to keep looping (more tool calls) or move on.
 
     This is the key control flow for the ReAct loop. If the last message
-    has tool_calls, we route to ToolNode. Otherwise, research is done.
+    has tool_calls AND we haven't exceeded _MAX_TOOL_ROUNDS, route to ToolNode.
+    Otherwise, research is done and we proceed to the processing pipeline.
     """
     last_message = state.messages[-1] if state.messages else None
 
     if last_message and hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "tools"
+        tool_rounds = sum(1 for m in state.messages if isinstance(m, ToolMessage))
+        if tool_rounds < _MAX_TOOL_ROUNDS:
+            return "tools"
+        logger.warning(f"Reached max tool rounds ({_MAX_TOOL_ROUNDS}), exiting ReAct loop")
     return "process"
 
 

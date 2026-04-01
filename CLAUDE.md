@@ -15,9 +15,9 @@
 ```
 main.py → agent/graph.py (LangGraph compiled graph)
               │
-              ├── research_agent_node   [Mistral-7B via HF Inference API]
+              ├── research_agent_node   [Groq LLM via ChatGroq]
               │     └── ToolNode        [search_hf_papers | search_arxiv | web_search]
-              │     (ReAct loop until LLM stops calling tools)
+              │     (ReAct loop — capped at _MAX_TOOL_ROUNDS=8, exits when LLM stops calling tools)
               │
               ├── collect_tool_results  [parse ToolMessage objects → dicts]
               ├── deduplicate_embed     [filter seen IDs → embed new → ChromaDB]
@@ -47,7 +47,7 @@ MCP server: mcp_main.py → mcp_server/server.py (4 tools for Claude Desktop)
 
 ### Important Decisions
 
-1. **HuggingFace over Gemini/Groq**: Free tier, no quota surprises, single API key covers both LLMs
+1. **Groq for LLMs, HuggingFace for embeddings**: Groq free tier for fast inference; local sentence-transformers for embeddings (zero cost, no latency)
 2. **Local embeddings (sentence-transformers)**: Zero cost, no API latency for embeddings
 3. **Pydantic state in LangGraph**: `ResearchState` is a Pydantic BaseModel — enables type safety across all nodes
 4. **Deduplication before embedding**: `get_seen_ids()` prevents re-embedding content across daily runs — keeps ChromaDB clean
@@ -62,7 +62,7 @@ MCP server: mcp_main.py → mcp_server/server.py (4 tools for Claude Desktop)
 - **Single responsibility per node**: Each LangGraph node does exactly one thing
 - **Error resilience**: Every external call (HF Papers, arXiv, Groq, ChromaDB) wrapped in try/except — append to `state.errors`, continue
 - **No re-embedding duplicates**: Always check `get_seen_ids()` before calling `embed_and_store()`
-- **Structured outputs**: LLM synthesis always uses `.with_structured_output(DailyBriefing)` — no raw string parsing
+- **Structured outputs**: Synthesis prompts the LLM to return raw JSON, strips markdown fences, then validates with `DailyBriefing.model_validate()` — Groq doesn't reliably support `.with_structured_output()`
 
 ### Code Style
 
@@ -98,8 +98,8 @@ python -c "from agent.graph import build_graph; print('OK')"
 |----------|----------|-------------|
 | `GROQ_API_KEY` | YES | Free at console.groq.com |
 | `TAVILY_API_KEY` | No | tavily.com free tier |
-| `PRIMARY_MODEL` | No | Default: `mistralai/Mistral-7B-Instruct-v0.3` |
-| `FALLBACK_MODEL` | No | Default: `HuggingFaceH4/zephyr-7b-beta` |
+| `PRIMARY_MODEL` | No | Default: `llama-3.3-70b-versatile` |
+| `FALLBACK_MODEL` | No | Default: `llama-3.1-8b-instant` |
 | `EMBEDDING_MODEL` | No | Default: `sentence-transformers/all-MiniLM-L6-v2` |
 | `CHROMA_PERSIST_DIR` | No | Default: `./chroma_db` |
 
@@ -122,8 +122,9 @@ pytest tests/ -v
 2. **ChromaDB + LangChain**: Use `langchain-chroma` not `langchain_community.vectorstores.Chroma` — different package.
 3. **LangGraph state with Pydantic**: `ResearchState` uses `arbitrary_types_allowed = True` because messages list contains LangChain objects.
 4. **ToolMessage parsing**: Tool results come back as JSON strings in `ToolMessage.content`. Use `json.loads()` carefully — web_search returns plain text, not JSON.
-5. **`should_continue` router**: Checks `msg.tool_calls` — this attribute only exists on `AIMessage`, not all message types. Guard with `hasattr()`.
-6. **Embedding model cache**: `get_embeddings()` is `@lru_cache` — it's loaded once per process. Don't call with different model names expecting different instances.
+5. **`should_continue` router**: Checks `msg.tool_calls` — this attribute only exists on `AIMessage`, not all message types. Guard with `hasattr()`. Also enforces `_MAX_TOOL_ROUNDS` cap by counting `ToolMessage`s in state — prevents `GraphRecursionError`.
+6. **`tool_choice` on Groq**: Do NOT pass `tool_choice="auto"` — Groq interprets this as "must call a tool every time", which prevents the LLM from ever exiting the ReAct loop naturally. Omit it to let the model decide when to stop.
+7. **Embedding model cache**: `get_embeddings()` is `@lru_cache` — it's loaded once per process. Don't call with different model names expecting different instances.
 
 ## Agent Toolkit
 
@@ -151,3 +152,4 @@ Available skills (slash commands): `/fix-ci`, `/review-pr`, `/scaffold`, `/test-
 |------|--------|-----------|
 | 2026-03-09 | Initial build | Replaced parenting Q&A app with AI research briefing agent |
 | 2026-03-09 | Added Promptly agents + skills | AI-assisted development toolkit |
+| 2026-03-31 | Fixed ReAct loop infinite recursion | Removed `tool_choice="auto"` (forced tool calls on Groq); added `_MAX_TOOL_ROUNDS=8` cap in `should_continue`; bumped MCP server recursion_limit to 50 |

@@ -16,151 +16,62 @@ import logging
 import os
 from datetime import datetime
 
-from mcp.server import Server
-from mcp import types
+from mcp.server.fastmcp import FastMCP
 
 from agent.config import OUTPUT_DIR
 from rag.retriever import retrieve_across_dates
 
 logger = logging.getLogger(__name__)
 
-app = Server("ai-research-briefing")
+mcp = FastMCP("ai-research-briefing")
 
 
-@app.list_tools()
-async def list_tools() -> list[types.Tool]:
-    """List all tools this MCP server exposes."""
-    return [
-        types.Tool(
-            name="run_daily_briefing",
-            description=(
-                "Trigger a full AI research briefing agent run. "
-                "Fetches from arXiv and web, then synthesizes a markdown briefing."
-            ),
-            inputSchema={"type": "object", "properties": {}, "required": []},
-        ),
-        types.Tool(
-            name="get_latest_briefing",
-            description="Return the most recent saved daily AI briefing as markdown text.",
-            inputSchema={"type": "object", "properties": {}, "required": []},
-        ),
-        types.Tool(
-            name="search_past_briefings",
-            description=(
-                "Semantic search over all past briefings stored in ChromaDB. "
-                "Find content related to a specific topic across multiple days."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query (e.g., 'diffusion models', 'AI safety')",
-                    },
-                    "k": {
-                        "type": "integer",
-                        "description": "Number of results to return (default: 10)",
-                        "default": 10,
-                    },
-                },
-                "required": ["query"],
-            },
-        ),
-        types.Tool(
-            name="get_trending_topics",
-            description="Analyze recurring themes and topics across the last N days of briefings.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "days": {
-                        "type": "integer",
-                        "description": "Number of past days to analyze (default: 7)",
-                        "default": 7,
-                    }
-                },
-                "required": [],
-            },
-        ),
-    ]
-
-
-async def _dispatch_run_daily_briefing(arguments: dict) -> list[types.TextContent]:
-    return await _run_daily_briefing()
-
-
-async def _dispatch_get_latest_briefing(arguments: dict) -> list[types.TextContent]:
-    return await _get_latest_briefing()
-
-
-async def _dispatch_search_past_briefings(arguments: dict) -> list[types.TextContent]:
-    return await _search_past_briefings(
-        query=arguments.get("query", ""),
-        k=arguments.get("k", 10),
-    )
-
-
-async def _dispatch_get_trending_topics(arguments: dict) -> list[types.TextContent]:
-    return await _get_trending_topics(days=arguments.get("days", 7))
-
-
-_TOOL_HANDLERS = {
-    "run_daily_briefing": _dispatch_run_daily_briefing,
-    "get_latest_briefing": _dispatch_get_latest_briefing,
-    "search_past_briefings": _dispatch_search_past_briefings,
-    "get_trending_topics": _dispatch_get_trending_topics,
-}
-
-
-@app.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    """Handle tool calls from MCP clients."""
-    handler = _TOOL_HANDLERS.get(name)
-    if handler is None:
-        return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
-    return await handler(arguments)
-
-
-async def _run_daily_briefing() -> list[types.TextContent]:
-    """Trigger a full agent run."""
+@mcp.tool()
+async def run_daily_briefing() -> str:
+    """Trigger a full AI research briefing agent run.
+    Fetches from arXiv and web, then synthesizes a markdown briefing."""
     try:
         from agent.graph import build_graph
         from agent.state import ResearchState
 
         date = datetime.now().strftime("%Y-%m-%d")
         graph = build_graph()
-        final_state = graph.invoke(
+        graph.invoke(
             ResearchState(date=date),
-            config={"recursion_limit": 25},
+            config={"recursion_limit": 50},
         )
 
         filepath = f"{OUTPUT_DIR}/{date}.md"
         if os.path.exists(filepath):
             with open(filepath) as f:
-                content = f.read()
-            return [types.TextContent(type="text", text=content)]
-        return [types.TextContent(type="text", text="Briefing generated but file not found.")]
+                return f.read()
+        return "Briefing generated but file not found."
     except Exception as e:
-        return [types.TextContent(type="text", text=f"Error running briefing: {e}")]
+        return f"Error running briefing: {e}"
 
 
-async def _get_latest_briefing() -> list[types.TextContent]:
-    """Return most recent saved briefing."""
+@mcp.tool()
+async def get_latest_briefing() -> str:
+    """Return the most recent saved daily AI briefing as markdown text."""
     files = sorted(glob.glob(f"{OUTPUT_DIR}/*.md"), reverse=True)
     if not files:
-        return [types.TextContent(
-            type="text",
-            text="No briefings found. Run run_daily_briefing first."
-        )]
+        return "No briefings found. Run run_daily_briefing first."
     with open(files[0]) as f:
-        content = f.read()
-    return [types.TextContent(type="text", text=content)]
+        return f.read()
 
 
-async def _search_past_briefings(query: str, k: int) -> list[types.TextContent]:
-    """Semantic search over ChromaDB."""
+@mcp.tool()
+async def search_past_briefings(query: str, k: int = 10) -> str:
+    """Semantic search over all past briefings stored in ChromaDB.
+    Find content related to a specific topic across multiple days.
+
+    Args:
+        query: Search query (e.g., 'diffusion models', 'AI safety')
+        k: Number of results to return (default: 10)
+    """
     docs = retrieve_across_dates(query=query, k=k)
     if not docs:
-        return [types.TextContent(type="text", text="No results found.")]
+        return "No results found."
 
     results = []
     for i, doc in enumerate(docs, 1):
@@ -170,19 +81,21 @@ async def _search_past_briefings(query: str, k: int) -> list[types.TextContent]:
             f"date: {meta.get('date', 'unknown')})\n"
             f"{doc.page_content[:500]}\n"
         )
-    return [types.TextContent(type="text", text="\n---\n".join(results))]
+    return "\n---\n".join(results)
 
 
-async def _get_trending_topics(days: int) -> list[types.TextContent]:
-    """Analyze trends across N days."""
+@mcp.tool()
+async def get_trending_topics(days: int = 7) -> str:
+    """Analyze recurring themes and topics across the last N days of briefings.
+
+    Args:
+        days: Number of past days to analyze (default: 7)
+    """
     query = "trending topics recurring themes important developments AI machine learning"
     docs = retrieve_across_dates(query=query, k=days * 5)
 
     if not docs:
-        return [types.TextContent(
-            type="text",
-            text="Not enough historical data for trend analysis."
-        )]
+        return "Not enough historical data for trend analysis."
 
     by_date: dict[str, list[str]] = {}
     for doc in docs:
@@ -196,9 +109,9 @@ async def _get_trending_topics(days: int) -> list[types.TextContent]:
             lines.append(f"- {chunk[:150]}")
         lines.append("")
 
-    return [types.TextContent(type="text", text="\n".join(lines))]
+    return "\n".join(lines)
 
 
 def create_mcp_server():
     """Return the configured MCP server app."""
-    return app
+    return mcp

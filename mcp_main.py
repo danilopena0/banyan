@@ -12,34 +12,18 @@ Windows: %APPDATA%\\Claude\\claude_desktop_config.json
       "command": "python",
       "args": ["/absolute/path/to/banyan/mcp_main.py"],
       "env": {
-        "HUGGINGFACEHUB_API_TOKEN": "hf_your_token",
-        "REDDIT_CLIENT_ID": "...",
-        "REDDIT_CLIENT_SECRET": "...",
-        "REDDIT_USER_AGENT": "AIBriefingAgent/1.0",
+        "GROQ_API_KEY": "gsk_...",
         "TAVILY_API_KEY": "tvly_..."
       }
     }
   }
 }
 """
-import asyncio
-import sys
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from mcp.server.stdio import stdio_server
-from mcp_server.server import app
-
-
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(
-            read_stream,
-            write_stream,
-            app.create_initialization_options(),
-        )
-
+from mcp_server.server import mcp
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    mcp.run()
