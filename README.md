@@ -2,6 +2,9 @@
 
 An autonomous AI agent that researches and synthesizes daily AI/ML developments using production-grade patterns: **ReAct tool calling**, **RAG**, **structured outputs**, and **MCP server** exposure. Runs entirely on free tiers using Groq + Tavily.
 
+# Demo
+https://github.com/user-attachments/assets/a3632fdb-3964-497e-8a48-6bfa9689c18f
+
 ## Quick Start
 
 ```bash
