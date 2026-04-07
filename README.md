@@ -47,9 +47,6 @@ A daily markdown briefing with:
 START
   │
   ▼
-fetch_ai_news          3 Tavily queries (model releases, benchmarks, industry news)
-  │                    → state.web_news
-  ▼
 research_agent ◄─────┐  Groq llama-3.3-70b decides which tools to call
   │                  │  → appends AIMessage to state.messages
   │                  │
@@ -97,17 +94,16 @@ END
 
 **Groq is called twice per run** — once in the ReAct loop (tool calling) and once for synthesis. Message history is windowed before each LLM call to stay within the 12K TPM free-tier limit.
 
-**Tavily is called ~25 times per run** across three stages (see [Tavily Usage](#tavily-usage) below). HF Papers results skip the per-paper Tavily enrichment since they already carry upvote counts.
+**Tavily is called ~25 times per run** across two stages (see [Tavily Usage](#tavily-usage) below). HF Papers results skip the per-paper Tavily enrichment since they already carry upvote counts.
 
 **Embeddings never leave your machine** — sentence-transformers runs locally on CPU.
 
 ## Tavily Usage
 
-Tavily is used in three distinct places per run (~25 API calls total):
+Tavily is used in two distinct places per run (~25 API calls total):
 
 | Stage | Queries | Purpose |
 |-------|---------|---------|
-| `fetch_ai_news_node` | 3 curated | Model releases, benchmarks, industry news |
 | `enrich_papers_node` | 1 per arXiv paper (max 20) | Score papers by web presence — skipped for HF Papers |
 | `web_search` tool | LLM-driven, ad-hoc | Research agent's open-ended searches |
 | `enrich_concept_node` | 1 per concept (1-3) | Find beginner resources for each concept of the day |
@@ -294,6 +290,9 @@ banyan/
 │   ├── tools.py      # @tool functions: search_hf_papers, search_arxiv, web_search
 │   ├── state.py      # Pydantic ResearchState
 │   ├── prompts.py    # All LLM prompts in one place
+│   ├── renderer.py   # Markdown rendering for DailyBriefing → output file
+│   ├── tavily.py     # Tavily search helper
+│   ├── config.py     # Shared config constants (OUTPUT_DIR, etc.)
 │   └── concepts.py   # 252 curated DS/ML concepts for concept_of_the_day selection
 ├── rag/
 │   ├── embeddings.py # HuggingFaceEmbeddings (local, free)
